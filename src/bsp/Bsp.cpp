@@ -11454,19 +11454,20 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		for (size_t i = 0; i < bsprend->glLightmapTextures.size(); i++) {
 			Texture* atlasTex = bsprend->glLightmapTextures[i];
 			if (atlasTex && atlasTex->get_data()) {
-				std::string atlasName = "atlas_" + std::to_string(i) + ".bmp";
+				std::string atlasName = "atlas_" + std::to_string(i) + ".png";
 				std::string atlasRelativePath = "atlases/" + atlasName;
 				std::string atlasPath = path + atlasRelativePath;
 				createDir(path + "atlases");  // Ensure the atlases directory exists
 
-				// Swap R and B channels to match BMP BGR format
 				COLOR3* lightmapData = (COLOR3*)atlasTex->get_data();
 				int numPixels = atlasTex->width * atlasTex->height;
-				for (int k = 0; k < numPixels; k++) {
-					std::swap(lightmapData[k].b, lightmapData[k].r);
-				}
 
-				WriteBMP_RGB(atlasPath.c_str(), atlasTex->get_data(), atlasTex->width, atlasTex->height);
+				COLOR4* rgbaData = new COLOR4[numPixels];
+				for (int k = 0; k < numPixels; k++) {
+					rgbaData[k] = COLOR4(lightmapData[k].r, lightmapData[k].g, lightmapData[k].b, 255);
+				}
+				lodepng_encode32_file(atlasPath.c_str(), (unsigned char*)rgbaData, atlasTex->width, atlasTex->height);
+				delete[] rgbaData;
 
 				// Swap back if the texture data is used elsewhere
 				for (int k = 0; k < numPixels; k++) {
@@ -11650,17 +11651,17 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 						materials.emplace_back("illum 2");
 					}
 
-					materials.emplace_back("map_Kd " + std::string("textures/") + tex.szName + std::string(".bmp"));
+					materials.emplace_back("map_Kd " + std::string("textures/") + tex.szName + std::string(".png"));
 				}
 
 				if (export_csm)
 				{
-					csm_export->materials.emplace_back(std::string("textures/") + tex.szName + std::string(".bmp"));
+					csm_export->materials.emplace_back(std::string("textures/") + tex.szName + std::string(".png"));
 				}
 			}
 
-			if (!fileExists(path + std::string("textures/") + tex.szName + std::string(".bmp")))
-			{
+		if (!fileExists(path + std::string("textures/") + tex.szName + std::string(".png")))
+		{
 				if (tex.nOffsets[0] > 0)
 				{
 					if (texOffset >= 0)
@@ -11680,14 +11681,14 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 						}
 
 						COLOR3* imageData = ConvertMipTexToRGB(((BSPMIPTEX*)(textures + texOffset)), is_texture_with_pal(texinfo.iMiptex) ? NULL : palette);
-
-						for (int k = 0; k < tex.nHeight * tex.nWidth; k++)
+						COLOR4* rgbaData = new COLOR4[tex.nWidth * tex.nHeight];
+						for (int i = 0; i < tex.nWidth * tex.nHeight; i++)
 						{
-							std::swap(imageData[k].b, imageData[k].r);
+							rgbaData[i] = COLOR4(imageData[i].r, imageData[i].g, imageData[i].b, 255);
 						}
+						lodepng_encode32_file((path + std::string("textures/") + tex.szName + std::string(".png")).c_str(), (unsigned char*)rgbaData, tex.nWidth, tex.nHeight);
 
-						WriteBMP_RGB(path + std::string("textures/") + tex.szName + std::string(".bmp"), (unsigned char*)imageData, tex.nWidth, tex.nHeight);
-
+						delete[] rgbaData;
 						delete imageData;
 					}
 				}
@@ -11706,19 +11707,17 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 								int lastMipSize = (wadTex->nWidth >> 3) * (wadTex->nHeight >> 3);
 								COLOR3* palette = (COLOR3*)(wadTex->data + wadTex->nOffsets[3] + lastMipSize + sizeof(short) - sizeof(BSPMIPTEX));
 								unsigned char* src = wadTex->data;
-								COLOR3* imageData = new COLOR3[wadTex->nWidth * wadTex->nHeight];
-
+								COLOR4* rgbaData = new COLOR4[wadTex->nWidth * wadTex->nHeight];
 								int sz = wadTex->nWidth * wadTex->nHeight;
 
 								for (int m = 0; m < sz; m++)
 								{
-									imageData[m] = palette[src[m]];
-									std::swap(imageData[m].b, imageData[m].r);
+									rgbaData[m] = COLOR4(palette[src[m]].r, palette[src[m]].g, palette[src[m]].b, 255);
 								}
 
-								WriteBMP_RGB(path + std::string("textures/") + tex.szName + std::string(".bmp"), (unsigned char*)imageData, wadTex->nWidth, wadTex->nHeight);
+								lodepng_encode32_file((path + std::string("textures/") + tex.szName + std::string(".png")).c_str(), (unsigned char*)rgbaData, wadTex->nWidth, wadTex->nHeight);
 
-								delete[] imageData;
+								delete[] rgbaData;
 								delete wadTex;
 								break;
 							}
