@@ -668,15 +668,15 @@ void print_help(const std::string& command)
 			"  -o <file>     : Output file. By default, <mapname> is overwritten.\n"
 		);
 	}
-	else if (command == "exportobj")
-	{
-		print_log(PRINT_RED | PRINT_GREEN | PRINT_INTENSITY, "{}",
-			"exportobj - Export bsp geometry to obj [WIP].\n\n"
+		else if (command == "exportobj")
+		{
+			print_log(PRINT_RED | PRINT_GREEN | PRINT_INTENSITY, "{}",
+				"exportobj - Export bsp geometry to obj [WIP].\n\n"
 
-			"Usage:   bspguy exportobj -scale \"-16\" <mapname>\n"
-			"Example: bspguy exportobj c1a0.bsp\n"
-		);
-	}
+				"Usage:   bspguy exportobj <mapname> [options]\n"
+				"Example: bspguy exportobj c1a0.bsp -scale \"-16\"\n"
+			);
+		}
 	else if (command == "exportlit")
 	{
 		print_log(PRINT_RED | PRINT_GREEN | PRINT_INTENSITY, "{}",
@@ -1105,9 +1105,35 @@ int main(int argc, char* argv[])
 			if (g_cmdLine.hasOption("-scale"))
 			{
 				scale = str_to_int(getValueInQuotes(g_cmdLine.getOption("-scale")));
+				print_log("Parsed -scale option: {}", scale);
 			}
+
+			bool lightmap_mode = false;
+			if (g_cmdLine.hasOption("-lightmap"))
+			{
+				lightmap_mode = str_to_int(getValueInQuotes(g_cmdLine.getOption("-lightmap")));
+				print_log("Parsed -lightmap option: {}", lightmap_mode);
+			}
+			
+			// Load the BSP
 			Bsp* tmpBsp = new Bsp(g_cmdLine.bspfile);
-			tmpBsp->ExportToObjWIP(g_cmdLine.bspfile, scale);
+			if (!tmpBsp->bsp_valid)
+			{
+				delete tmpBsp;
+				return 1;
+			}
+			
+			// Initialize renderer headless
+			Renderer renderer{};
+			renderer.addMap(tmpBsp);
+			renderer.reloadBspModels();
+			
+			// Now the BSP has its renderer set and models refreshed
+			tmpBsp->ExportToObjWIP("bspguy_work/", scale, false);
+			if (lightmap_mode) {
+				tmpBsp->ExportToObjWIP("bspguy_work/", scale, lightmap_mode);
+			}
+			
 			delete tmpBsp;
 			retval = 0;
 		}
@@ -1274,4 +1300,3 @@ int main(int argc, char* argv[])
 	}
 	return 0;
 }
-

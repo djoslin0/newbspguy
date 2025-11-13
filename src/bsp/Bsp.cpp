@@ -11407,10 +11407,10 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 	scale = std::fabs(scale);
 
-	print_log(get_localized_string(LANG_0194), bsp_name + ".obj", path);
+	std::string file_name = lightmapmode ? bsp_name + "_lightmap" : bsp_name;
+
+	print_log(get_localized_string(LANG_0194), file_name + ".obj", path);
 	print_log(get_localized_string(LANG_0195), iscale == 1 ? "scale" : iscale < 0 ? "downscale" : "upscale", abs(iscale));
-
-
 
 	std::string groupname = std::string();
 
@@ -11450,6 +11450,44 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 	ProgressMeter tmp = g_progress;
 
+	if (lightmapmode) {
+		for (size_t i = 0; i < bsprend->glLightmapTextures.size(); i++) {
+			Texture* atlasTex = bsprend->glLightmapTextures[i];
+			if (atlasTex && atlasTex->get_data()) {
+				std::string atlasName = "atlas_" + std::to_string(i) + ".bmp";
+				std::string atlasRelativePath = "atlases/" + atlasName;
+				std::string atlasPath = path + atlasRelativePath;
+				createDir(path + "atlases");  // Ensure the atlases directory exists
+
+				// Swap R and B channels to match BMP BGR format
+				COLOR3* lightmapData = (COLOR3*)atlasTex->get_data();
+				int numPixels = atlasTex->width * atlasTex->height;
+				for (int k = 0; k < numPixels; k++) {
+					std::swap(lightmapData[k].b, lightmapData[k].r);
+				}
+
+				WriteBMP_RGB(atlasPath.c_str(), atlasTex->get_data(), atlasTex->width, atlasTex->height);
+
+				// Swap back if the texture data is used elsewhere
+				for (int k = 0; k < numPixels; k++) {
+					std::swap(lightmapData[k].b, lightmapData[k].r);
+				}
+				print_log("Dumped atlas {} to {}\n", i, atlasPath);
+
+				matnames.push_back(atlasName);
+				materials.emplace_back("");
+				materials.emplace_back("newmtl " + atlasName);
+				materials.emplace_back("Ns 0");
+				materials.emplace_back("Ka 1 1 1");
+				materials.emplace_back("Ks 0 0 0");
+				materials.emplace_back("Ke 0 0 0");
+				materials.emplace_back("Ni 1");
+				materials.emplace_back("d 1");
+				materials.emplace_back("illum 2");
+				materials.emplace_back("map_Kd " + atlasRelativePath);
+			}
+		}
+	}
 
 	if (with_mdl)
 	{
@@ -11566,120 +11604,124 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 			entIds.push_back(0);
 		}
 
-		materialid = -1;
-		for (size_t m = 0; m < matnames.size(); m++)
-		{
-			if (matnames[m] == tex.szName)
-				materialid = (int)m;
-		}
-
-		if (materialid == -1)
-		{
-			materialid = (int)matnames.size();
-			matnames.emplace_back(tex.szName);
-
-			if (!export_csm)
+		if (lightmapmode) {
+			materialid = 0;
+		} else {
+			materialid = -1;
+			for (size_t m = 0; m < matnames.size(); m++)
 			{
-				materials.emplace_back("");
-				materials.emplace_back("newmtl " + matnames[materialid]);
-
-				materials.emplace_back("Ns 0");
-				materials.emplace_back("Ka 1 1 1");
-				materials.emplace_back("Ks 0 0 0");
-				materials.emplace_back("Ke 0 0 0");
-				materials.emplace_back("Ni 1");
-
-				if (toLowerCase(tex.szName) == "aaatrigger" ||
-					toLowerCase(tex.szName) == "null" ||
-					starts_with(toLowerCase(tex.szName), "sky") ||
-					toLowerCase(tex.szName) == "noclip" ||
-					toLowerCase(tex.szName) == "clip" ||
-					toLowerCase(tex.szName) == "origin" ||
-					toLowerCase(tex.szName) == "bevel" ||
-					toLowerCase(tex.szName) == "hint" ||
-					toLowerCase(tex.szName) == "skip"
-					)
-				{
-					materials.emplace_back("d 0.25");
-					materials.emplace_back("illum 1");
-				}
-				else
-				{
-					materials.emplace_back("d 1");
-					materials.emplace_back("illum 2");
-				}
-
-				materials.emplace_back("map_Kd " + std::string("textures/") + tex.szName + std::string(".bmp"));
+				if (matnames[m] == tex.szName)
+					materialid = (int)m;
 			}
 
-			if (export_csm)
+			if (materialid == -1)
 			{
-				csm_export->materials.emplace_back(std::string("textures/") + tex.szName + std::string(".bmp"));
-			}
-		}
+				materialid = (int)matnames.size();
+				matnames.emplace_back(tex.szName);
 
-		if (!fileExists(path + std::string("textures/") + tex.szName + std::string(".bmp")))
-		{
-			if (tex.nOffsets[0] > 0)
-			{
-				if (texOffset >= 0)
+				if (!export_csm)
 				{
-					int colorCount = 256;
-					COLOR3 palette[256];
-					if (g_settings.pal_id >= 0)
+					materials.emplace_back("");
+					materials.emplace_back("newmtl " + matnames[materialid]);
+
+					materials.emplace_back("Ns 0");
+					materials.emplace_back("Ka 1 1 1");
+					materials.emplace_back("Ks 0 0 0");
+					materials.emplace_back("Ke 0 0 0");
+					materials.emplace_back("Ni 1");
+
+					if (toLowerCase(tex.szName) == "aaatrigger" ||
+						toLowerCase(tex.szName) == "null" ||
+						starts_with(toLowerCase(tex.szName), "sky") ||
+						toLowerCase(tex.szName) == "noclip" ||
+						toLowerCase(tex.szName) == "clip" ||
+						toLowerCase(tex.szName) == "origin" ||
+						toLowerCase(tex.szName) == "bevel" ||
+						toLowerCase(tex.szName) == "hint" ||
+						toLowerCase(tex.szName) == "skip"
+						)
 					{
-						colorCount = g_settings.palettes[g_settings.pal_id].colors;
-						memcpy(palette, g_settings.palettes[g_settings.pal_id].data, g_settings.palettes[g_settings.pal_id].colors * sizeof(COLOR3));
+						materials.emplace_back("d 0.25");
+						materials.emplace_back("illum 1");
 					}
 					else
 					{
-						colorCount = 256;
-						memcpy(palette, g_settings.palette_default,
-							256 * sizeof(COLOR3));
+						materials.emplace_back("d 1");
+						materials.emplace_back("illum 2");
 					}
 
-					COLOR3* imageData = ConvertMipTexToRGB(((BSPMIPTEX*)(textures + texOffset)), is_texture_with_pal(texinfo.iMiptex) ? NULL : palette);
+					materials.emplace_back("map_Kd " + std::string("textures/") + tex.szName + std::string(".bmp"));
+				}
 
-					for (int k = 0; k < tex.nHeight * tex.nWidth; k++)
-					{
-						std::swap(imageData[k].b, imageData[k].r);
-					}
-
-					WriteBMP_RGB(path + std::string("textures/") + tex.szName + std::string(".bmp"), (unsigned char*)imageData, tex.nWidth, tex.nHeight);
-
-					delete imageData;
+				if (export_csm)
+				{
+					csm_export->materials.emplace_back(std::string("textures/") + tex.szName + std::string(".bmp"));
 				}
 			}
-			else
+
+			if (!fileExists(path + std::string("textures/") + tex.szName + std::string(".bmp")))
 			{
-				bool foundInWad = false;
-				for (size_t r = 0; r < mapRenderers.size() && !foundInWad; r++)
+				if (tex.nOffsets[0] > 0)
 				{
-					for (size_t k = 0; k < mapRenderers[r]->wads.size(); k++)
+					if (texOffset >= 0)
 					{
-						if (mapRenderers[r]->wads[k]->hasTexture(tex.szName))
+						int colorCount = 256;
+						COLOR3 palette[256];
+						if (g_settings.pal_id >= 0)
 						{
-							foundInWad = true;
+							colorCount = g_settings.palettes[g_settings.pal_id].colors;
+							memcpy(palette, g_settings.palettes[g_settings.pal_id].data, g_settings.palettes[g_settings.pal_id].colors * sizeof(COLOR3));
+						}
+						else
+						{
+							colorCount = 256;
+							memcpy(palette, g_settings.palette_default,
+								256 * sizeof(COLOR3));
+						}
 
-							WADTEX* wadTex = mapRenderers[r]->wads[k]->readTexture(tex.szName);
-							int lastMipSize = (wadTex->nWidth >> 3) * (wadTex->nHeight >> 3);
-							COLOR3* palette = (COLOR3*)(wadTex->data + wadTex->nOffsets[3] + lastMipSize + sizeof(short) - sizeof(BSPMIPTEX));
-							unsigned char* src = wadTex->data;
-							COLOR3* imageData = new COLOR3[wadTex->nWidth * wadTex->nHeight];
+						COLOR3* imageData = ConvertMipTexToRGB(((BSPMIPTEX*)(textures + texOffset)), is_texture_with_pal(texinfo.iMiptex) ? NULL : palette);
 
-							int sz = wadTex->nWidth * wadTex->nHeight;
+						for (int k = 0; k < tex.nHeight * tex.nWidth; k++)
+						{
+							std::swap(imageData[k].b, imageData[k].r);
+						}
 
-							for (int m = 0; m < sz; m++)
+						WriteBMP_RGB(path + std::string("textures/") + tex.szName + std::string(".bmp"), (unsigned char*)imageData, tex.nWidth, tex.nHeight);
+
+						delete imageData;
+					}
+				}
+				else
+				{
+					bool foundInWad = false;
+					for (size_t r = 0; r < mapRenderers.size() && !foundInWad; r++)
+					{
+						for (size_t k = 0; k < mapRenderers[r]->wads.size(); k++)
+						{
+							if (mapRenderers[r]->wads[k]->hasTexture(tex.szName))
 							{
-								imageData[m] = palette[src[m]];
-								std::swap(imageData[m].b, imageData[m].r);
+								foundInWad = true;
+
+								WADTEX* wadTex = mapRenderers[r]->wads[k]->readTexture(tex.szName);
+								int lastMipSize = (wadTex->nWidth >> 3) * (wadTex->nHeight >> 3);
+								COLOR3* palette = (COLOR3*)(wadTex->data + wadTex->nOffsets[3] + lastMipSize + sizeof(short) - sizeof(BSPMIPTEX));
+								unsigned char* src = wadTex->data;
+								COLOR3* imageData = new COLOR3[wadTex->nWidth * wadTex->nHeight];
+
+								int sz = wadTex->nWidth * wadTex->nHeight;
+
+								for (int m = 0; m < sz; m++)
+								{
+									imageData[m] = palette[src[m]];
+									std::swap(imageData[m].b, imageData[m].r);
+								}
+
+								WriteBMP_RGB(path + std::string("textures/") + tex.szName + std::string(".bmp"), (unsigned char*)imageData, wadTex->nWidth, wadTex->nHeight);
+
+								delete[] imageData;
+								delete wadTex;
+								break;
 							}
-
-							WriteBMP_RGB(path + std::string("textures/") + tex.szName + std::string(".bmp"), (unsigned char*)imageData, wadTex->nWidth, wadTex->nHeight);
-
-							delete[] imageData;
-							delete wadTex;
-							break;
 						}
 					}
 				}
@@ -11697,7 +11739,7 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 			vec3 origin_offset = ent->origin.flip();
 
-			std::string next_group_name = "M_" + std::to_string(mdlid) + "_ENT_" + std::to_string(tmpentid);
+			std::string next_group_name = "M_" + std::to_string(mdlid) + "_ENT_" + std::to_string(tmpentid) + "#" + ent->classname;
 
 			if (next_group_name != groupname)
 			{
@@ -11778,6 +11820,12 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 				fU /= (float)tex.nWidth;
 				fV /= -(float)tex.nHeight;
+
+				// lightmap UVs
+				if (lightmapmode) {
+					fU = vert.luv[0][0];
+					fV = 1-vert.luv[0][1];
+				}
 
 				if (!export_csm)
 				{
@@ -11875,11 +11923,11 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 	if (!export_csm)
 	{
-		std::ofstream obj_file(path + bsp_name + ".obj", std::ios::binary);
+		std::ofstream obj_file(path + file_name + ".obj", std::ios::binary);
 		if (obj_file)
 		{
 			obj_file << "# Exported using bspguy!\n";
-			obj_file << "mtllib " << bsp_name << ".mtl\n";
+			obj_file << "mtllib " << file_name << ".mtl\n";
 
 			for (auto& group : group_list)
 			{
@@ -11902,7 +11950,7 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		}
 
 
-		std::ofstream mat_file(path + bsp_name + ".mtl", std::ios::binary);
+		std::ofstream mat_file(path + file_name + ".mtl", std::ios::binary);
 
 		if (mat_file)
 		{
