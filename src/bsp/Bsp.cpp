@@ -11606,7 +11606,7 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		}
 
 		if (lightmapmode) {
-			materialid = 0;
+			materialid = renderer->lightmaps[i].atlasId[0];
 		} else {
 			materialid = -1;
 			for (size_t m = 0; m < matnames.size(); m++)
@@ -11685,6 +11685,10 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 						for (int i = 0; i < tex.nWidth * tex.nHeight; i++)
 						{
 							rgbaData[i] = COLOR4(imageData[i].r, imageData[i].g, imageData[i].b, 255);
+							// detect transparent
+							if (tex.szName[0] == '{' && !imageData[i].r && !imageData[i].g && imageData[i].b == 255) {
+								rgbaData[i] = COLOR4(0, 0, 0, 0);
+							}
 						}
 						lodepng_encode32_file((path + std::string("textures/") + tex.szName + std::string(".png")).c_str(), (unsigned char*)rgbaData, tex.nWidth, tex.nHeight);
 
@@ -11713,6 +11717,12 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 								for (int m = 0; m < sz; m++)
 								{
 									rgbaData[m] = COLOR4(palette[src[m]].r, palette[src[m]].g, palette[src[m]].b, 255);
+
+									// detect transparent
+									if (tex.szName[0] == '{' && !palette[src[m]].r && !palette[src[m]].g && palette[src[m]].b == 255) {
+										rgbaData[m] = COLOR4(0, 0, 0, 0);
+									}
+
 								}
 
 								lodepng_encode32_file((path + std::string("textures/") + tex.szName + std::string(".png")).c_str(), (unsigned char*)rgbaData, wadTex->nWidth, wadTex->nHeight);

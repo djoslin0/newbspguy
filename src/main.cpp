@@ -674,7 +674,13 @@ void print_help(const std::string& command)
 				"exportobj - Export bsp geometry to obj [WIP].\n\n"
 
 				"Usage:   bspguy exportobj <mapname> [options]\n"
-				"Example: bspguy exportobj c1a0.bsp -scale \"-16\"\n"
+				"Example: bspguy exportobj c1a0.bsp -scale \"-16\" -o \"exported\"\n"
+
+				"\n[Options]\n"
+				"  -scale <num>   : Scale factor for exported geometry.\n"
+				"                   Positive values scale up, negative values scale down.\n"
+				"  -lightmap      : Export with lightmap UV coordinates.\n"
+				"  -o <dir>       : Output directory. By default, \"bspguy_work\" is used.\n"
 			);
 		}
 	else if (command == "exportlit")
@@ -708,6 +714,17 @@ void print_help(const std::string& command)
 			"Example: bspguy exportwad c1a0.bsp\n"
 			"\n[Options]\n"
 			"  -o <file>     : Output file. By default, <mapname> is overwritten.\n"
+		);
+	}
+	else if (command == "exportent")
+	{
+		print_log(PRINT_RED | PRINT_GREEN | PRINT_INTENSITY, "{}",
+			"exportent   : Export entities to .ent file.\n\n"
+
+			"Usage:   bspguy exportent <mapname>\n"
+			"Example: bspguy exportent c1a0.bsp\n"
+			"\n[Options]\n"
+			"  -o <file>     : Output file. By default, <mapname>.ent is created.\n"
 		);
 	}
 	else if (command == "importwad")
@@ -781,6 +798,7 @@ void print_help(const std::string& command)
 			"  exportrad   : Export RAD.exe .ext & .wa_ files.\n"
 			"  exportwad   : Export all map textures to .wad file.\n"
 			"  importwad   : Import all .wad textures to map.\n"
+			"  exportent   : Export entities to .ent file.\n"
 			"  screenshot  : Create screenshots and close map.\n"
 			" "
 			" "
@@ -1168,6 +1186,13 @@ int main(int argc, char* argv[])
 		{
 			Bsp* tmpBsp = new Bsp(g_cmdLine.bspfile);
 			tmpBsp->ExportEmbeddedWad(g_cmdLine.hasOption("-o") ? g_cmdLine.getOption("-o") : g_cmdLine.bspfile + ".wad");
+			delete tmpBsp;
+			retval = 0;
+		}
+		else if (g_cmdLine.command == "exportent")
+		{
+			Bsp* tmpBsp = new Bsp(g_cmdLine.bspfile);
+			tmpBsp->export_entities(g_cmdLine.hasOption("-o") ? g_cmdLine.getOption("-o") : g_cmdLine.bspfile + ".ent");
 			delete tmpBsp;
 			retval = 0;
 		}
