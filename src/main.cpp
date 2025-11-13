@@ -1127,11 +1127,15 @@ int main(int argc, char* argv[])
 			Renderer renderer{};
 			renderer.addMap(tmpBsp);
 			renderer.reloadBspModels();
-			
+
+			std::string workdir = g_cmdLine.hasOption("-o") ? g_cmdLine.getOption("-o") : "bspguy_work";
+			workdir += "/";
+			createDir(workdir);
+
 			// Now the BSP has its renderer set and models refreshed
-			tmpBsp->ExportToObjWIP("bspguy_work/", scale, false);
+			tmpBsp->ExportToObjWIP(workdir, scale, false);
 			if (lightmap_mode) {
-				tmpBsp->ExportToObjWIP("bspguy_work/", scale, lightmap_mode);
+				tmpBsp->ExportToObjWIP(workdir, scale, lightmap_mode);
 			}
 			
 			delete tmpBsp;
