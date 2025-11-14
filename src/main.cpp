@@ -32,7 +32,7 @@ std::string g_version_string = "NewBSPGuy v4.50";
 #ifdef WIN_XP_86
 #include <shellapi.h>
 #endif
-#else 
+#else
 #include <csignal>
 #endif
 
@@ -914,7 +914,7 @@ LONG CALLBACK unhandled_handler(EXCEPTION_POINTERS* e)
 	return EXCEPTION_CONTINUE_SEARCH;
 }
 #endif
-#else 
+#else
 void signalHandler(int signal) {
 	print_log("Caught signal: {}", signal);
 	exit(signal);
@@ -944,7 +944,7 @@ int main(int argc, char* argv[])
 		AddVectoredExceptionHandler(1, unhandled_handler);
 #endif
 		DisableProcessWindowsGhosting();
-#else 
+#else
 		signal(SIGSEGV, signalHandler);
 		signal(SIGFPE, signalHandler);
 		signal(SIGBUS, signalHandler);
@@ -1132,7 +1132,14 @@ int main(int argc, char* argv[])
 				lightmap_mode = str_to_int(getValueInQuotes(g_cmdLine.getOption("-lightmap")));
 				print_log("Parsed -lightmap option: {}", lightmap_mode);
 			}
-			
+
+			bool export_collision = false;
+			if (g_cmdLine.hasOption("-collision"))
+			{
+				export_collision = str_to_int(getValueInQuotes(g_cmdLine.getOption("-collision")));
+				print_log("Parsed -collision option: {}", export_collision);
+			}
+
 			// Load the BSP
 			Bsp* tmpBsp = new Bsp(g_cmdLine.bspfile);
 			if (!tmpBsp->bsp_valid)
@@ -1140,7 +1147,7 @@ int main(int argc, char* argv[])
 				delete tmpBsp;
 				return 1;
 			}
-			
+
 			// Initialize renderer headless
 			Renderer renderer{};
 			renderer.addMap(tmpBsp);
@@ -1152,10 +1159,9 @@ int main(int argc, char* argv[])
 
 			// Now the BSP has its renderer set and models refreshed
 			tmpBsp->ExportToObjWIP(workdir, scale, false);
-			if (lightmap_mode) {
-				tmpBsp->ExportToObjWIP(workdir, scale, lightmap_mode);
-			}
-			
+			if (lightmap_mode) { tmpBsp->ExportToObjWIP(workdir, scale, lightmap_mode); }
+			if (export_collision) { tmpBsp->ExportToObjWIP(workdir, scale, false, false, false, 0, true); }
+
 			delete tmpBsp;
 			retval = 0;
 		}

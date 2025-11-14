@@ -1033,7 +1033,7 @@ bool Bsp::move(vec3 offset, int modelIdx, bool onlyModel, bool forceMove, bool l
 	bool movingWorld = modelIdx == 0 && !onlyModel;
 
 	// Submodels don't use leaves like the world model does. Only the contents of a leaf matters
-	// for submodels. All other data is ignored. bspguy will reuse world leaves in submodels to 
+	// for submodels. All other data is ignored. bspguy will reuse world leaves in submodels to
 	// save space, which means moving leaves for those models would likely break something else.
 	// So, don't move leaves for submodels.
 	// bool dontMoveLeaves = !movingWorld;
@@ -3942,7 +3942,7 @@ void Bsp::fix_bad_surface_extents_with_subdivide(int faceIdx)
 			continue;
 		}
 
-		// adjust face indexes if about to split a face with a lower index 
+		// adjust face indexes if about to split a face with a lower index
 		for (int n = 0; n < (int)tmpfaces.size(); n++) {
 			if (tmpfaces[n] > n) {
 				tmpfaces[n]++;
@@ -5422,7 +5422,7 @@ bool Bsp::load_lumps(const std::string& fpath)
 							tmpleaves[n].nMins[m] = (float)leaves16[n].nMins[m];
 						}
 
-						//print_log("Leaf iFirstMarkSurface {} nMarkSurfaces {} nContents {} nVisOffset {} \n", 
+						//print_log("Leaf iFirstMarkSurface {} nMarkSurfaces {} nContents {} nVisOffset {} \n",
 						//	tmpleaves[n].iFirstMarkSurface, tmpleaves[n].nMarkSurfaces, tmpleaves[n].nContents, tmpleaves[n].nVisOffset);
 					}
 
@@ -7419,7 +7419,7 @@ int Bsp::create_solid(const vec3& mins, const vec3& maxs, int textureIdx, bool e
 	{
 		newModel.iHeadnodes[1] = newModel.iHeadnodes[2] = newModel.iHeadnodes[3] = CONTENTS_EMPTY;
 	}
-	//remove_unused_model_structures(CLEAN_VISDATA | CLEAN_LEAVES); 
+	//remove_unused_model_structures(CLEAN_VISDATA | CLEAN_LEAVES);
 
 	return newModelIdx;
 }
@@ -9400,7 +9400,7 @@ int Bsp::duplicate_model(int modelIdx)
 
 	pickCount++;
 	vertPickCount++;
-	// recalculate leafs 
+	// recalculate leafs
 	return newModelIdx;
 }
 
@@ -11392,7 +11392,7 @@ void Bsp::ExportToSmdWIP(const std::string& path, bool split, bool oneRoot)
 	renderer->pushUndoState("EXPORT .SMD EDITED", EDIT_MODEL_LUMPS | FL_ENTITIES);
 }
 
-void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode, bool with_mdl, bool export_csm, int grouping)
+void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode, bool with_mdl, bool export_csm, int grouping, bool export_collision)
 {
 	if (!createDir(path))
 	{
@@ -11408,6 +11408,9 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 	scale = std::fabs(scale);
 
 	std::string file_name = lightmapmode ? bsp_name + "_lightmap" : bsp_name;
+
+	if (export_collision)
+		file_name += "_collision";
 
 	print_log(get_localized_string(LANG_0194), file_name + ".obj", path);
 	print_log(get_localized_string(LANG_0195), iscale == 1 ? "scale" : iscale < 0 ? "downscale" : "upscale", abs(iscale));
@@ -11738,7 +11741,7 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		}
 
 
-		for (size_t e = 0; e < entIds.size(); e++)
+		for (size_t e = 0; e < entIds.size() && !export_collision; e++)
 		{
 			int tmpentid = entIds[e];
 
@@ -11928,6 +11931,158 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 			vertoffset += rface->vertCount;
 		}
+	}
+
+	// Export collision geometry
+	if (export_collision && !export_csm)
+	{
+		int hullIdx = 1;
+		std::string collisionGroupName = "collision_hull_" + std::to_string(hullIdx);
+
+		if (std::find(group_list.begin(), group_list.end(), collisionGroupName) == group_list.end())
+			group_list.push_back(collisionGroupName);
+
+		// Get or create NULL texture for collision
+		int collisionTexId = GetTriggerTexture();
+		if (collisionTexId < 0) {
+			collisionTexId = AddTriggerTexture();
+		}
+
+		materialid = collisionTexId;
+		if (lastmaterialid != materialid) {
+			group_vert_groups[collisionGroupName]++;
+			if (grouping == 1) {
+				group_objects[collisionGroupName] << "g " << collisionGroupName << "_f" << group_vert_groups[collisionGroupName] << "\n";
+			}
+			else if (grouping == 2) {
+				group_objects[collisionGroupName] << "o " << collisionGroupName << "_f" << group_vert_groups[collisionGroupName] << "\n";
+			}
+			if (materialid >= 0 && materialid < (int)matnames.size()) {
+				group_objects[collisionGroupName] << "usemtl " << matnames[materialid] << "\n";
+			}
+		}
+
+		tmp.update("Export collision geometry...", modelCount);
+		g_progress = tmp;
+
+		for (int modelIdx = 0; modelIdx < modelCount; modelIdx++) {
+			tmp.tick();
+			g_progress = tmp;
+
+			Clipper clipper;
+			std::vector<NodeVolumeCuts> solidNodes = this->get_model_leaf_volume_cuts(modelIdx, hullIdx, CONTENTS_SOLID);
+
+			for (size_t k = 0; k < solidNodes.size(); k++) {
+				CMesh mesh = clipper.clip(solidNodes[k].cuts);
+
+				if (mesh.verts.empty() || mesh.faces.empty()) {
+					continue;
+				}
+
+				// Get entity offset for this model
+				std::vector<int> entIds = get_model_ents_ids(modelIdx);
+				vec3 origin_offset = vec3();
+
+				if (!entIds.empty() && entIds[0] < (int)ents.size()) {
+					Entity* ent = ents[entIds[0]];
+					origin_offset = ent->origin;
+				}
+
+				// Build vertex index mapping for visible verts
+				std::map<int, int> vertIndexMap;
+				int localVertCount = 0;
+
+				for (size_t v = 0; v < mesh.verts.size(); v++) {
+					if (mesh.verts[v].visible) {
+						vertIndexMap[v] = vertoffset + localVertCount;
+						localVertCount++;
+
+						vec3 pos = (mesh.verts[v].pos + origin_offset) * scale;
+						pos = pos.flip();
+						group_verts[collisionGroupName] << "v " << pos.toKeyvalueString() << "\n";
+					}
+				}
+
+				// Process each visible face
+				for (size_t f = 0; f < mesh.faces.size(); f++) {
+					CFace& face = mesh.faces[f];
+					if (!face.visible || face.edges.empty()) continue;
+
+					// Build ordered vertex loop by walking edges
+					std::vector<int> faceVerts;
+					std::set<int> visitedEdges;
+
+					// Start with first edge
+					int currentEdge = face.edges[0];
+					CEdge& startEdge = mesh.edges[currentEdge];
+					faceVerts.push_back(startEdge.verts[0]);
+					faceVerts.push_back(startEdge.verts[1]);
+					visitedEdges.insert(currentEdge);
+
+					// Walk remaining edges to build ordered loop
+					while (visitedEdges.size() < face.edges.size()) {
+						int lastVert = faceVerts.back();
+						bool foundNext = false;
+
+						for (size_t e = 0; e < face.edges.size(); e++) {
+							int edgeIdx = face.edges[e];
+							if (visitedEdges.count(edgeIdx)) continue;
+
+							CEdge& edge = mesh.edges[edgeIdx];
+							if (edge.verts[0] == lastVert) {
+								faceVerts.push_back(edge.verts[1]);
+								visitedEdges.insert(edgeIdx);
+								foundNext = true;
+								break;
+							}
+							else if (edge.verts[1] == lastVert) {
+								faceVerts.push_back(edge.verts[0]);
+								visitedEdges.insert(edgeIdx);
+								foundNext = true;
+								break;
+							}
+						}
+
+						if (!foundNext) break;
+					}
+
+					// Remove duplicate last vertex if loop closed
+					if (faceVerts.size() > 2 && faceVerts.front() == faceVerts.back()) {
+						faceVerts.pop_back();
+					}
+
+					// Need at least 3 vertices for a valid face
+					if (faceVerts.size() < 3) continue;
+
+					// Write normal for this face
+					vec3 normal = face.normal.flip();
+					group_normals[collisionGroupName] << "vn " << normal.toKeyvalueString() << "\n";
+					normoffset++;
+
+					// Write dummy UVs for each vertex
+					for (size_t v = 0; v < faceVerts.size(); v++) {
+						group_textures[collisionGroupName] << "vt 0.0 0.0\n";
+					}
+
+					// Triangulate the face (simple fan triangulation)
+					for (size_t v = 1; v < faceVerts.size() - 1; v++) {
+						group_objects[collisionGroupName] << "f";
+
+						// Triangle: 0, v, v+1
+						for (int idx : {0, (int)v, (int)v + 1}) {
+							int globalVertIdx = vertIndexMap[faceVerts[idx]];
+							group_objects[collisionGroupName] << " " << globalVertIdx << "/" << globalVertIdx << "/" << normoffset;
+						}
+
+						group_objects[collisionGroupName] << "\n";
+					}
+				}
+
+				vertoffset += localVertCount;
+			}
+		}
+
+		lastmaterialid = materialid;
 	}
 
 	if (!export_csm)
@@ -13191,7 +13346,7 @@ void Bsp::ExportToMapWIP(const std::string& path, bool selected, bool merge_face
 				jack_file.writeLenStr("model");
 				jack_file.writeLenStr("script");
 				// trash
-				// 
+				//
 				// spawn flags
 				jack_file.write<int>(0);
 				// sp_angles
@@ -13212,11 +13367,11 @@ void Bsp::ExportToMapWIP(const std::string& path, bool selected, bool merge_face
 				jack_file.write<int>(0);
 				// sp_framerate
 				jack_file.write<float>(10.0f);
-				// sp_scale 
+				// sp_scale
 				jack_file.write<float>(1.0f);
 				// sp_radius
 				jack_file.write<float>(0.0f);
-				// more trash 
+				// more trash
 				unsigned char tmpTrash[28]{};
 				jack_file.write(tmpTrash);
 				// keyvalues
@@ -13252,7 +13407,7 @@ void Bsp::ExportToMapWIP(const std::string& path, bool selected, bool merge_face
 				}
 				// vis groups
 				jack_file.write<int>(0);
-				// brushes 
+				// brushes
 				jack_file.write<int>((int)out.second.size());
 				for (MapBrush brush : out.second)
 				{
@@ -13260,7 +13415,7 @@ void Bsp::ExportToMapWIP(const std::string& path, bool selected, bool merge_face
 					jack_file.write<int>(0);
 					// editor flags
 					jack_file.write<int>(0);
-					// group id 
+					// group id
 					jack_file.write<int>(0);
 					// root group id
 					jack_file.write<int>(0);
@@ -14665,7 +14820,7 @@ void Bsp::decalShoot(vec3 pos, const std::string& texname)
 	int modelidx = get_model_from_face(bestMath);
 	print_log(get_localized_string(LANG_0218), modelidx, bestMath, renderer->intersectVec.toKeyvalueString());*/
 
-	// 
+	//
 }
 
 
@@ -15148,7 +15303,7 @@ int Bsp::CalcFaceTextureStep(int facenum)
 		return 8;
 	}
 
-	// next xash 
+	// next xash
 	if (is_bsp30ext && extralumps.size())
 	{
 		BSPTEXTUREINFO& tex = texinfos[faces[facenum].iTextureInfo];
