@@ -1140,6 +1140,13 @@ int main(int argc, char* argv[])
 				print_log("Parsed -collision option: {}", export_collision);
 			}
 
+			bool with_mdl = false;
+			if (g_cmdLine.hasOption("-withmdl"))
+			{
+				with_mdl = str_to_int(getValueInQuotes(g_cmdLine.getOption("-withmdl")));
+				print_log("Parsed -withmdl option: {}", with_mdl);
+			}
+
 			// Load the BSP
 			Bsp* tmpBsp = new Bsp(g_cmdLine.bspfile);
 			if (!tmpBsp->bsp_valid)
@@ -1158,8 +1165,8 @@ int main(int argc, char* argv[])
 			createDir(workdir);
 
 			// Now the BSP has its renderer set and models refreshed
-			tmpBsp->ExportToObjWIP(workdir, scale, false);
-			if (lightmap_mode) { tmpBsp->ExportToObjWIP(workdir, scale, lightmap_mode); }
+			tmpBsp->ExportToObjWIP(workdir, scale, false, with_mdl);
+			if (lightmap_mode) { tmpBsp->ExportToObjWIP(workdir, scale, lightmap_mode, with_mdl); }
 			if (export_collision) { tmpBsp->ExportToObjWIP(workdir, scale, false, false, false, 0, true); }
 
 			delete tmpBsp;

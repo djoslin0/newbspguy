@@ -835,6 +835,7 @@ del "$(TargetDir)bspguy.cfg_bak"</Command>
   <ItemGroup>
     <ClCompile Include="..\ascript\add_on\scriptfile\scriptfile.cpp" />
     <ClCompile Include="..\ascript\add_on\scriptfile\scriptfilesystem.cpp" />
+    <ClCompile Include="..\src\bsp\BspObjExporter.cpp" />
     <ClCompile Include=".\..\ascript\add_on\datetime\datetime.cpp" />
     <ClCompile Include=".\..\ascript\add_on\scriptmath\scriptmath.cpp" />
     <ClCompile Include=".\..\ascript\add_on\scriptmath\scriptmathcomplex.cpp" />

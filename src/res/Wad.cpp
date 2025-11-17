@@ -568,7 +568,7 @@ COLOR4* ConvertWadTexToRGBA(WADTEX* wadTex, COLOR3* palette, int colors)
 	{
 		if (wadTex->szName[0] == '{' && (colors - 1 == src[k] || palette[src[k]] == COLOR3(0, 0, 255)))
 		{
-			imageData[k] = COLOR4(255, 255, 255, 0);
+			imageData[k] = COLOR4(0, 0, 0, 0);
 		}
 		else
 		{

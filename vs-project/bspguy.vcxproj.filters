@@ -217,6 +217,9 @@
     <ClCompile Include=".\..\ascript\add_on\scriptmath\scriptmathcomplex.cpp">
       <Filter>Source Files\util\lib\as</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\bsp\BspObjExporter.cpp">
+      <Filter>Source Files\bsp</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include=".\..\src\cli\CommandLine.h">
