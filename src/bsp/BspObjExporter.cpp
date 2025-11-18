@@ -415,7 +415,7 @@ static void exportModelClipnodeGeometry(Bsp* bsp,
 		tmpentid = entIds[0];
 		classname = bsp->ents[tmpentid]->classname;
 	}
-	std::string clipnodeGroupName = "M_" + std::to_string(modelIdx) + "_ENT_" + std::to_string(tmpentid) + "#" + classname;
+	std::string clipnodeGroupName = "M_" + std::to_string(modelIdx) + "_ENT_" + std::to_string(tmpentid) + "#clipnode#" + classname;
 
 	if (std::find(group_list.begin(), group_list.end(), clipnodeGroupName) == group_list.end())
 		group_list.push_back(clipnodeGroupName);
