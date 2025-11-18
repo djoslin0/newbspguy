@@ -389,6 +389,172 @@ static void exportCollisionGeometry(Bsp* bsp,
 	lastmaterialid = materialid;
 }
 
+static void exportModelClipnodeGeometry(Bsp* bsp,
+	std::vector<std::string>& group_list,
+	std::map<std::string, std::stringstream>& group_verts,
+	std::map<std::string, std::stringstream>& group_normals,
+	std::map<std::string, std::stringstream>& group_textures,
+	std::map<std::string, std::stringstream>& group_objects,
+	std::map<std::string, int>& group_vert_groups,
+	std::vector<std::string>& matnames,
+	int& vertoffset,
+	int& normoffset,
+	float scale,
+	int grouping,
+	int& materialid,
+	int& lastmaterialid,
+	ProgressMeter& tmp,
+	int modelIdx,
+	int hullIdx)
+{
+	// Get entity info for group naming
+	std::vector<int> entIds = bsp->get_model_ents_ids(modelIdx);
+	int tmpentid = 0; // worldspawn if no entity
+	std::string classname = "worldspawn";
+	if (!entIds.empty() && entIds[0] < (int)bsp->ents.size()) {
+		tmpentid = entIds[0];
+		classname = bsp->ents[tmpentid]->classname;
+	}
+	std::string clipnodeGroupName = "M_" + std::to_string(modelIdx) + "_ENT_" + std::to_string(tmpentid) + "#" + classname;
+
+	if (std::find(group_list.begin(), group_list.end(), clipnodeGroupName) == group_list.end())
+		group_list.push_back(clipnodeGroupName);
+
+	materialid = 0;
+	if (lastmaterialid != materialid) {
+		group_vert_groups[clipnodeGroupName]++;
+		if (grouping == 1) {
+			group_objects[clipnodeGroupName] << "g " << clipnodeGroupName << "_f" << group_vert_groups[clipnodeGroupName] << "\n";
+		}
+		else if (grouping == 2) {
+			group_objects[clipnodeGroupName] << "o " << clipnodeGroupName << "_f" << group_vert_groups[clipnodeGroupName] << "\n";
+		}
+		if (materialid >= 0 && materialid < (int)matnames.size()) {
+			group_objects[clipnodeGroupName] << "usemtl " << matnames[materialid] << "\n";
+		}
+	}
+
+	tmp.update("Export clipnode for model " + std::to_string(modelIdx) + "...", 1);
+	g_progress = tmp;
+
+	Clipper clipper;
+	std::vector<NodeVolumeCuts> solidNodes = bsp->get_model_leaf_volume_cuts(modelIdx, hullIdx, CONTENTS_SOLID);
+
+	for (size_t k = 0; k < solidNodes.size(); k++) {
+		tmp.tick();
+		g_progress = tmp;
+
+		CMesh mesh = clipper.clip(solidNodes[k].cuts);
+
+		if (mesh.verts.empty() || mesh.faces.empty()) {
+			continue;
+		}
+
+		// Get entity offset for this model
+		std::vector<int> entIds = bsp->get_model_ents_ids(modelIdx);
+		vec3 origin_offset = vec3();
+
+		if (!entIds.empty() && entIds[0] < (int)bsp->ents.size()) {
+			Entity* ent = bsp->ents[entIds[0]];
+			origin_offset = ent->origin;
+		}
+
+		// Build vertex index mapping for visible verts
+		std::map<int, int> vertIndexMap;
+		int localVertCount = 0;
+
+		for (size_t v = 0; v < mesh.verts.size(); v++) {
+			if (mesh.verts[v].visible) {
+				vertIndexMap[v] = vertoffset + localVertCount;
+				localVertCount++;
+
+				vec3 pos = (mesh.verts[v].pos + origin_offset) * scale;
+				pos = pos.flip();
+				group_verts[clipnodeGroupName] << "v " << pos.toKeyvalueString() << "\n";
+			}
+		}
+
+		// Process each visible face
+		for (size_t f = 0; f < mesh.faces.size(); f++) {
+			CFace& face = mesh.faces[f];
+			if (!face.visible || face.edges.empty()) continue;
+
+			// Build ordered vertex loop by walking edges
+			std::vector<int> faceVerts;
+			std::set<int> visitedEdges;
+
+			// Start with first edge
+			int currentEdge = face.edges[0];
+			CEdge& startEdge = mesh.edges[currentEdge];
+			faceVerts.push_back(startEdge.verts[0]);
+			faceVerts.push_back(startEdge.verts[1]);
+			visitedEdges.insert(currentEdge);
+
+			// Walk remaining edges to build ordered loop
+			while (visitedEdges.size() < face.edges.size()) {
+				int lastVert = faceVerts.back();
+				bool foundNext = false;
+
+				for (size_t e = 0; e < face.edges.size(); e++) {
+					int edgeIdx = face.edges[e];
+					if (visitedEdges.count(edgeIdx)) continue;
+
+					CEdge& edge = mesh.edges[edgeIdx];
+					if (edge.verts[0] == lastVert) {
+						faceVerts.push_back(edge.verts[1]);
+						visitedEdges.insert(edgeIdx);
+						foundNext = true;
+						break;
+					}
+					else if (edge.verts[1] == lastVert) {
+						faceVerts.push_back(edge.verts[0]);
+						visitedEdges.insert(edgeIdx);
+						foundNext = true;
+						break;
+					}
+				}
+
+				if (!foundNext) break;
+			}
+
+			// Remove duplicate last vertex if loop closed
+			if (faceVerts.size() > 2 && faceVerts.front() == faceVerts.back()) {
+				faceVerts.pop_back();
+			}
+
+			// Need at least 3 vertices for a valid face
+			if (faceVerts.size() < 3) continue;
+
+			// Write normal for this face
+			vec3 normal = face.normal.flip();
+			group_normals[clipnodeGroupName] << "vn " << normal.toKeyvalueString() << "\n";
+			normoffset++;
+
+			// Write dummy UVs for each vertex
+			for (size_t v = 0; v < faceVerts.size(); v++) {
+				group_textures[clipnodeGroupName] << "vt 0.0 0.0\n";
+			}
+
+			// Triangulate the face (simple fan triangulation)
+			for (size_t v = 1; v < faceVerts.size() - 1; v++) {
+				group_objects[clipnodeGroupName] << "f";
+
+				// Triangle: 0, v, v+1
+				for (int idx : {0, (int)v, (int)v + 1}) {
+					int globalVertIdx = vertIndexMap[faceVerts[idx]];
+					group_objects[clipnodeGroupName] << " " << globalVertIdx << "/" << globalVertIdx << "/" << normoffset;
+				}
+
+				group_objects[clipnodeGroupName] << "\n";
+			}
+		}
+
+		vertoffset += localVertCount;
+	}
+
+	lastmaterialid = materialid;
+}
+
 void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode, bool with_mdl, bool export_csm, int grouping, bool export_collision)
 {
 	if (!createDir(path))
@@ -636,6 +802,26 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 			group_objects[groupname] << "\n";
 
 			vertoffset += rface->vertCount;
+		}
+	}
+
+	// Ensure clipnodes are loaded for model clipnode export
+	if (!bsprend->clipnodesLoaded)
+	{
+		bsprend->loadClipnodes();
+		bsprend->clipnodesLoaded = true;
+	}
+
+	// Export model clipnode geometry for models without faces
+	for (int m = 0; m < modelCount; m++)
+	{
+		if (bsprend->renderModels.empty() || m >= (int)bsprend->renderModels.size() || !bsprend->renderModels[m]->renderGroups.empty())
+			continue;
+
+		int hullIdx = bsprend->getBestClipnodeHull(m);
+		if (hullIdx != -1)
+		{
+			exportModelClipnodeGeometry(this, group_list, group_verts, group_normals, group_textures, group_objects, group_vert_groups, matnames, vertoffset, normoffset, scale, grouping, materialid, lastmaterialid, tmp, m, hullIdx);
 		}
 	}
 
