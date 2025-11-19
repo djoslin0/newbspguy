@@ -2738,6 +2738,7 @@ int str_to_int(const std::string& s)
 
 std::string flt_to_str(float f)
 {
+	if (!std::isfinite(f)) { f = 0.0f; }
 	std::string retstr = std::to_string(f);
 	auto it = retstr.find('.');
 	if (it != std::string::npos)
