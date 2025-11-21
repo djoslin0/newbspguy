@@ -229,6 +229,122 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 	return materialid;
 }
 
+static int addMdlTextureMaterial(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames,
+								 Texture* tex, const std::string& texname)
+{
+	// check if material already exists
+	for (size_t i = 0; i < matnames.size(); i++)
+	{
+		if (matnames[i] == texname)
+		{
+			return (int)i;
+		}
+	}
+
+	// export to png
+	int materialid = exportMaterial(
+		path, materials, matnames,
+		"textures", texname,
+		(COLOR4*)tex->get_data(), tex->width, tex->height
+	);
+	return materialid;
+}
+
+static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, const std::string& name, float scale, ProgressMeter& tmp)
+{
+	mdl->UpdateModelMeshList();
+
+	std::string path = output_path + "/mdl_models/";
+	createDir(path);
+	createDir(path + "textures");
+
+	std::string obj_name = name + ".obj";
+	std::string mtl_name = name + ".mtl";
+
+	std::vector<std::string> materials;
+	std::vector<std::string> matnames;
+
+	int vertoffset = 1;
+	int texoffset = 1;
+
+	std::ofstream obj_file(path + obj_name);
+	if (!obj_file) return;
+
+	obj_file << "# Exported MDL using bspguy!\n";
+	obj_file << "mtllib " << name << ".mtl\n";
+
+	std::ofstream mtl_file(path + mtl_name);
+	if (mtl_file) {
+		mtl_file << "# Exported MDL mtl using bspguy!\n";
+	}
+
+	std::map<Texture*, int> texToMatId;
+	int lastMaterial = -1;
+
+	for (size_t group = 0; group < mdl->mdl_mesh_groups.size(); group++) {
+		for (size_t meshid = 0; meshid < mdl->mdl_mesh_groups[group].size(); meshid++) {
+			tmp.tick();
+			StudioMesh& sm = mdl->mdl_mesh_groups[group][meshid];
+
+			// Ensure material for this texture
+			int currentMaterial = -1;
+			if (sm.texture) {
+				std::string texname = sm.texture->texName.empty() ? "unnamed" : sm.texture->texName;
+				if (texToMatId.find(sm.texture) == texToMatId.end()) {
+					currentMaterial = addMdlTextureMaterial(path, materials, matnames, sm.texture, texname);
+					texToMatId[sm.texture] = currentMaterial;
+				} else {
+					currentMaterial = texToMatId[sm.texture];
+				}
+			} else {
+				// No texture, use null or something, but for simplicity, skip or use default
+				continue;
+			}
+
+			// Switch material if changed
+			if (currentMaterial != lastMaterial) {
+				if (currentMaterial >= 0 && currentMaterial < (int)matnames.size()) {
+					obj_file << "usemtl " << matnames[currentMaterial] << "\n";
+				}
+				lastMaterial = currentMaterial;
+			}
+
+			for (auto& v : sm.verts) {
+				vec3 pos = v.pos * scale;
+				obj_file << "v " << pos.toKeyvalueString() << "\n";
+			}
+
+			for (auto& v : sm.verts) {
+				obj_file << "vt " << v.u << " " << (1.0f - v.v) << "\n";
+			}
+
+			// Assume triangles
+			for (size_t i = 0; i < sm.verts.size(); i += 3) {
+				obj_file << "f";
+				for (size_t j = 0; j < 3; j++) {
+					size_t idx = i + j;
+					if (idx >= sm.verts.size()) break;
+					obj_file << " " << vertoffset + idx << "/" << texoffset + idx;
+				}
+				obj_file << "\n";
+			}
+
+			vertoffset += sm.verts.size();
+			texoffset += sm.verts.size();
+		}
+	}
+
+	if (mtl_file) {
+		for (auto const& s : materials) {
+			mtl_file << s << '\n';
+		}
+		mtl_file.close();
+	}
+
+	obj_file.close();
+	tmp.tick();
+}
+
 static void exportCollisionGeometry(Bsp* bsp,
 	std::vector<std::string>& group_list,
 	std::map<std::string, std::stringstream>& group_verts,
@@ -633,8 +749,34 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 	if (with_mdl)
 		processMdlToBsp(this, tmp);
-	else
-		renderer->preRenderEnts();
+	else {
+		int mdl_count = 0;
+		for (size_t ent = 0; ent < ents.size(); ent++)
+		{
+			if (renderer->renderEnts[ent].mdl)
+			{
+				mdl_count++;
+			}
+		}
+		if (mdl_count > 0) {
+			tmp.update("EXPORT MDL...", mdl_count);
+			g_progress = tmp;
+			for (size_t ent = 0; ent < ents.size(); ent++)
+			{
+				if (renderer->renderEnts[ent].mdl)
+				{
+					StudioModel* mdl = (StudioModel*)renderer->renderEnts[ent].mdl;
+					std::string model_path = ents[ent]->keyvalues["model"];
+					fs::path p(model_path);
+					std::string model_name = p.empty() ? "unknown" : stripExt(p.filename().string());
+					std::string name = model_name + "_" + std::to_string(ent);
+					exportMdlToObj(path, mdl, name, scale, tmp);
+				}
+			}
+		} else {
+			renderer->preRenderEnts();
+		}
+	}
 
 	tmp.update("Export to obj...", faceCount);
 
