@@ -85,7 +85,7 @@ static bool isSemiTransparentTexture(const std::string& texName)
 }
 
 static int exportMaterial(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames,
-						  std::string folder, std::string filename, COLOR4* rgba_data, int width, int height)
+						  std::string folder, std::string filename, COLOR4* rgba_data, int width, int height, float override_ni = -1)
 {
 	// build path pieces
 	std::string relative_path = folder + "/" + filename + ".png";
@@ -119,7 +119,16 @@ static int exportMaterial(const std::string& path, std::vector<std::string>& mat
 	materials.emplace_back("Ka 1 1 1");
 	materials.emplace_back("Ks 0 0 0");
 	materials.emplace_back("Ke 0 0 0");
-	materials.emplace_back("Ni 1");
+
+	if (override_ni > -1)
+	{
+		std::string ni_line = "Ni " + std::to_string(override_ni);
+		materials.emplace_back(ni_line);
+	}
+	else
+	{
+		materials.emplace_back("Ni 1");
+	}
 
 	if (isSemiTransparentTexture(filename))
 	{
@@ -230,7 +239,7 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 }
 
 static int addMdlTextureMaterial(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames,
-								 Texture* tex, const std::string& texname)
+								 Texture* tex, const std::string& texname, float override_ni = -1)
 {
 	// check if material already exists
 	for (size_t i = 0; i < matnames.size(); i++)
@@ -245,9 +254,39 @@ static int addMdlTextureMaterial(const std::string& path, std::vector<std::strin
 	int materialid = exportMaterial(
 		path, materials, matnames,
 		"textures", texname,
-		(COLOR4*)tex->get_data(), tex->width, tex->height
+		(COLOR4*)tex->get_data(), tex->width, tex->height,
+		override_ni
 	);
 	return materialid;
+}
+
+static mstudiotexture_t* getMdlTextureInfo(StudioModel* mdl, Texture* tex)
+{
+    if (!mdl || !tex || !mdl->m_ptexturehdr || mdl->m_ptexturehdr->numtextures <= 0) {
+        return nullptr;
+    }
+
+    // Get pointer to texture info array
+    mstudiotexture_t* mdlTexInfo = (mstudiotexture_t*)((unsigned char*)mdl->m_ptexturehdr + mdl->m_ptexturehdr->textureindex);
+
+    // Iterate through texture info and find the one matching our Texture*
+    for (int i = 0; i < mdl->m_ptexturehdr->numtextures; i++) {
+        // mstudiotexture_t::index stores the corresponding index in mdl->mdl_textures
+        if (mdlTexInfo[i].index >= 0 && mdlTexInfo[i].index < (int)mdl->mdl_textures.size() &&
+            mdl->mdl_textures[mdlTexInfo[i].index] == tex) {
+            return &mdlTexInfo[i];
+        }
+    }
+
+    // Fallback: match by texture name
+    for (int i = 0; i < mdl->m_ptexturehdr->numtextures; i++) {
+        std::string mdlTexName = stripExt(mdlTexInfo[i].name);
+        if (mdlTexName == tex->texName) {
+            return &mdlTexInfo[i];
+        }
+    }
+
+    return nullptr;
 }
 
 static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, const std::string& name, float scale, ProgressMeter& tmp)
@@ -291,7 +330,9 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 			if (sm.texture) {
 				std::string texname = sm.texture->texName.empty() ? "unnamed" : sm.texture->texName;
 				if (texToMatId.find(sm.texture) == texToMatId.end()) {
-					currentMaterial = addMdlTextureMaterial(path, materials, matnames, sm.texture, texname);
+					mstudiotexture_t* texInfo = getMdlTextureInfo(mdl, sm.texture);
+					float override_ni = texInfo ? texInfo->flags : -1;
+					currentMaterial = addMdlTextureMaterial(path, materials, matnames, sm.texture, texname, override_ni);
 					texToMatId[sm.texture] = currentMaterial;
 				} else {
 					currentMaterial = texToMatId[sm.texture];
