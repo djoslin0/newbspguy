@@ -321,7 +321,7 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 			// Assume triangles
 			for (size_t i = 0; i < sm.verts.size(); i += 3) {
 				obj_file << "f";
-				for (size_t j = 0; j < 3; j++) {
+				for (int j = 2; j >= 0; j--) {
 					size_t idx = i + j;
 					if (idx >= sm.verts.size()) break;
 					obj_file << " " << vertoffset + idx << "/" << texoffset + idx;
@@ -767,10 +767,14 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 				{
 					StudioModel* mdl = (StudioModel*)renderer->renderEnts[ent].mdl;
 					std::string model_path = ents[ent]->keyvalues["model"];
-					fs::path p(model_path);
-					std::string model_name = p.empty() ? "unknown" : stripExt(p.filename().string());
-					std::string name = model_name + "_" + std::to_string(ent);
-					exportMdlToObj(path, mdl, name, scale, tmp);
+
+					// Replace slashes with underscores to flatten path
+					std::string adjusted_path = model_path;
+					replaceAll(adjusted_path, "/", "_");
+					replaceAll(adjusted_path, ".", "_");
+
+					std::string model_name = adjusted_path.empty() ? "unknown" : adjusted_path;
+					exportMdlToObj(path, mdl, model_name, scale, tmp);
 				}
 			}
 		} else {
