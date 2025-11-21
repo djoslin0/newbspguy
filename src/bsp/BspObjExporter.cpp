@@ -244,7 +244,8 @@ static void exportCollisionGeometry(Bsp* bsp,
 	int& materialid,
 	int& lastmaterialid,
 	ProgressMeter& tmp,
-	int modelCount)
+	int modelCount,
+	int null_material_idx)
 {
 	int hullIdx = 1;
 	std::string collisionGroupName = "collision_hull_" + std::to_string(hullIdx);
@@ -252,8 +253,8 @@ static void exportCollisionGeometry(Bsp* bsp,
 	if (std::find(group_list.begin(), group_list.end(), collisionGroupName) == group_list.end())
 		group_list.push_back(collisionGroupName);
 
-	materialid = 0;
-	if (lastmaterialid != materialid) {
+	materialid = null_material_idx;
+	if (lastmaterialid != null_material_idx) {
 		group_vert_groups[collisionGroupName]++;
 		if (grouping == 1) {
 			group_objects[collisionGroupName] << "g " << collisionGroupName << "_f" << group_vert_groups[collisionGroupName] << "\n";
@@ -405,7 +406,8 @@ static void exportModelClipnodeGeometry(Bsp* bsp,
 	int& lastmaterialid,
 	ProgressMeter& tmp,
 	int modelIdx,
-	int hullIdx)
+	int hullIdx,
+	int null_material_idx)
 {
 	// Get entity info for group naming
 	std::vector<int> entIds = bsp->get_model_ents_ids(modelIdx);
@@ -420,8 +422,8 @@ static void exportModelClipnodeGeometry(Bsp* bsp,
 	if (std::find(group_list.begin(), group_list.end(), clipnodeGroupName) == group_list.end())
 		group_list.push_back(clipnodeGroupName);
 
-	materialid = 0;
-	if (lastmaterialid != materialid) {
+	materialid = null_material_idx;
+	if (lastmaterialid != null_material_idx) {
 		group_vert_groups[clipnodeGroupName]++;
 		if (grouping == 1) {
 			group_objects[clipnodeGroupName] << "g " << clipnodeGroupName << "_f" << group_vert_groups[clipnodeGroupName] << "\n";
@@ -603,6 +605,19 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 	std::vector<std::string> materials;
 	std::vector<std::string> matnames;
 
+	const int null_material_idx = 0;
+	matnames.push_back("NULL");
+	materials.emplace_back("");
+	materials.emplace_back("newmtl NULL");
+	materials.emplace_back("Ns 0");
+	materials.emplace_back("Ka 1 1 1");
+	materials.emplace_back("Ks 0 0 0");
+	materials.emplace_back("Ke 0 0 0");
+	materials.emplace_back("Ni 1");
+	materials.emplace_back("Kd 0.5 0.5 0.5");
+	materials.emplace_back("d 1");
+	materials.emplace_back("illum 2");
+
 	int vertoffset = 1;
 	int normoffset = 0;
 
@@ -671,8 +686,10 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		}
 
 		materialid = lightmapmode
-			? renderer->lightmaps[i].atlasId[0]
+			? (renderer->lightmaps[i].atlasId[0] + 1)
 			: addTextureMaterial(path, materials, matnames, this, tex, texinfo, texOffset);
+
+		if (materialid < 0) materialid = null_material_idx;
 
 		for (size_t e = 0; e < entIds.size(); e++)
 		{
@@ -821,14 +838,14 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		int hullIdx = bsprend->getBestClipnodeHull(m);
 		if (hullIdx != -1)
 		{
-			exportModelClipnodeGeometry(this, group_list, group_verts, group_normals, group_textures, group_objects, group_vert_groups, matnames, vertoffset, normoffset, scale, grouping, materialid, lastmaterialid, tmp, m, hullIdx);
+			exportModelClipnodeGeometry(this, group_list, group_verts, group_normals, group_textures, group_objects, group_vert_groups, matnames, vertoffset, normoffset, scale, grouping, materialid, lastmaterialid, tmp, m, hullIdx, null_material_idx);
 		}
 	}
 
 	// Export collision geometry
 	if (export_collision)
 	{
-		exportCollisionGeometry(this, group_list, group_verts, group_normals, group_textures, group_objects, group_vert_groups, matnames, vertoffset, normoffset, scale, grouping, materialid, lastmaterialid, tmp, modelCount);
+		exportCollisionGeometry(this, group_list, group_verts, group_normals, group_textures, group_objects, group_vert_groups, matnames, vertoffset, normoffset, scale, grouping, materialid, lastmaterialid, tmp, modelCount, null_material_idx);
 	}
 
 	std::ofstream obj_file(path + file_name + ".obj", std::ios::binary);
