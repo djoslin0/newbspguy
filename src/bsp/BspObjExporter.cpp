@@ -102,7 +102,7 @@ static bool isSemiTransparentTexture(const std::string& texName)
 }
 
 static int exportMaterial(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames,
-						  std::string folder, std::string filename, COLOR4* rgba_data, int width, int height, float override_ni = -1)
+						  std::string folder, std::string filename, COLOR4* rgba_data, int width, int height)
 {
 	// build path pieces
 	std::string relative_path = folder + "/" + filename + ".png";
@@ -137,15 +137,7 @@ static int exportMaterial(const std::string& path, std::vector<std::string>& mat
 	materials.emplace_back("Ks 0 0 0");
 	materials.emplace_back("Ke 0 0 0");
 
-	if (override_ni > -1)
-	{
-		std::string ni_line = "Ni " + std::to_string(override_ni);
-		materials.emplace_back(ni_line);
-	}
-	else
-	{
-		materials.emplace_back("Ni 1");
-	}
+	materials.emplace_back("Ni 1");
 
 	if (isSemiTransparentTexture(filename))
 	{
@@ -256,7 +248,7 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 }
 
 static int addMdlTextureMaterial(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames,
-								 Texture* tex, const std::string& texname, float override_ni = -1)
+								 Texture* tex, const std::string& texname)
 {
 	// check if material already exists
 	for (size_t i = 0; i < matnames.size(); i++)
@@ -271,8 +263,7 @@ static int addMdlTextureMaterial(const std::string& path, std::vector<std::strin
 	int materialid = exportMaterial(
 		path, materials, matnames,
 		"textures", texname,
-		(COLOR4*)tex->get_data(), tex->width, tex->height,
-		override_ni
+		(COLOR4*)tex->get_data(), tex->width, tex->height
 	);
 	return materialid;
 }
@@ -306,16 +297,133 @@ static mstudiotexture_t* getMdlTextureInfo(StudioModel* mdl, Texture* tex)
     return nullptr;
 }
 
-static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, const std::string& name, float scale, ProgressMeter& tmp)
+static std::string json_escape(const std::string& s) {
+    std::stringstream ss;
+    for (char c : s) {
+        switch (c) {
+            case '"' : ss << "\\\""; break;
+            case '\\' : ss << "\\\\"; break;
+            case '\b' : ss << "\\b"; break;
+            case '\f' : ss << "\\f"; break;
+            case '\n' : ss << "\\n"; break;
+            case '\r' : ss << "\\r"; break;
+            case '\t' : ss << "\\t"; break;
+            default: if (c < 32) ss << "\\u" << std::hex << std::setfill('0') << std::setw(4) << (int)c << std::dec; else ss << c;
+        }
+    }
+    return ss.str();
+}
+
+static void exportMdlJson(const std::string& base_path, StudioModel* mdl, const std::string& model_name)
 {
-	mdl->UpdateModelMeshList();
+	if (!mdl || !mdl->m_pstudiohdr) return;
 
-	std::string path = output_path + "/mdl_models/";
-	createDir(path);
-	createDir(path + "textures");
+	std::string json_path = base_path + "/mdl.json";
 
-	std::string obj_name = name + ".obj";
-	std::string mtl_name = name + ".mtl";
+	std::stringstream json;
+	json << "{\n";
+	json << "    \"model_name\":\"" << model_name << "\",\n";
+	json << "    \"header\": {\n";
+	json << "        \"id\":\"" << std::hex << mdl->m_pstudiohdr->id << "\",\n";
+	json << "        \"version\":" << std::dec << mdl->m_pstudiohdr->version << ",\n";
+	json << "        \"name\":\"" << json_escape(mdl->m_pstudiohdr->name) << "\",\n";
+	json << "        \"length\":" << mdl->m_pstudiohdr->length << ",\n";
+	json << "        \"eyeposition\":[" << mdl->m_pstudiohdr->eyeposition.x << "," << mdl->m_pstudiohdr->eyeposition.y << "," << mdl->m_pstudiohdr->eyeposition.z << "],\n";
+	json << "        \"min\":[" << mdl->m_pstudiohdr->min.x << "," << mdl->m_pstudiohdr->min.y << "," << mdl->m_pstudiohdr->min.z << "],\n";
+	json << "        \"max\":[" << mdl->m_pstudiohdr->max.x << "," << mdl->m_pstudiohdr->max.y << "," << mdl->m_pstudiohdr->max.z << "],\n";
+	json << "        \"bbmin\":[" << mdl->m_pstudiohdr->bbmin.x << "," << mdl->m_pstudiohdr->bbmin.y << "," << mdl->m_pstudiohdr->bbmin.z << "],\n";
+	json << "        \"bbmax\":[" << mdl->m_pstudiohdr->bbmax.x << "," << mdl->m_pstudiohdr->bbmax.y << "," << mdl->m_pstudiohdr->bbmax.z << "],\n";
+	json << "        \"flags\":" << mdl->m_pstudiohdr->flags << ",\n";
+	json << "        \"numbones\":" << mdl->m_pstudiohdr->numbones << ",\n";
+	json << "        \"numbonecontrollers\":" << mdl->m_pstudiohdr->numbonecontrollers << ",\n";
+	json << "        \"numhitboxes\":" << mdl->m_pstudiohdr->numhitboxes << ",\n";
+	json << "        \"numseq\":" << mdl->m_pstudiohdr->numseq << ",\n";
+	json << "        \"numseqgroups\":" << mdl->m_pstudiohdr->numseqgroups << ",\n";
+	json << "        \"numtextures\":" << mdl->m_pstudiohdr->numtextures << ",\n";
+	json << "        \"numskinref\":" << mdl->m_pstudiohdr->numskinref << ",\n";
+	json << "        \"numskinfamilies\":" << mdl->m_pstudiohdr->numskinfamilies << ",\n";
+	json << "        \"numbodyparts\":" << mdl->m_pstudiohdr->numbodyparts << ",\n";
+	json << "        \"numattachments\":" << mdl->m_pstudiohdr->numattachments << "\n";
+	json << "    },\n";
+	json << "    \"textures\": {\n";
+
+	if (mdl->m_ptexturehdr && mdl->m_ptexturehdr->numtextures > 0) {
+		mstudiotexture_t* mdlTexInfo = (mstudiotexture_t*)((unsigned char*)mdl->m_pstudiohdr + mdl->m_ptexturehdr->textureindex);
+
+		for (int i = 0; i < mdl->m_ptexturehdr->numtextures; i++) {
+			if (i > 0) json << ",\n";
+			std::string texName = stripExt(mdlTexInfo[i].name);
+			json << "        \"" << texName << "\": {\n";
+			json << "            \"flags\":" << mdlTexInfo[i].flags << ",\n";
+			json << "            \"width\":" << mdlTexInfo[i].width << ",\n";
+			json << "            \"height\":" << mdlTexInfo[i].height << "\n";
+			json << "        }";
+		}
+	}
+
+	json << "\n    },\n";
+	json << "    \"bodyparts\": [\n";
+
+	mstudiobodyparts_t* pbodypart = (mstudiobodyparts_t*)((unsigned char*)mdl->m_pstudiohdr + mdl->m_pstudiohdr->bodypartindex);
+	for (int bg = 0; bg < mdl->m_pstudiohdr->numbodyparts; bg++)
+	{
+		if (bg > 0) json << ",\n";
+		json << "        {\n";
+		json << "            \"name\":\"" << pbodypart->name << "\",\n";
+		json << "            \"nummodels\":" << pbodypart->nummodels << ",\n";
+		json << "            \"base\":" << pbodypart->base << "\n";
+		json << "        }";
+		pbodypart++;
+	}
+
+	json << "\n    ],\n";
+	json << "    \"total_body_configs\":" << (mdl->GetBodyCount() + 1) << ",\n";
+	json << "    \"sequences\": [\n";
+
+	mstudioseqdesc_t* pseqdesc = (mstudioseqdesc_t*)((unsigned char*)mdl->m_pstudiohdr + mdl->m_pstudiohdr->seqindex);
+	for (int sq = 0; sq < mdl->m_pstudiohdr->numseq; sq++)
+	{
+		if (sq > 0) json << ",\n";
+		json << "        {\n";
+		json << "            \"label\":\"" << pseqdesc->label << "\",\n";
+		json << "            \"fps\":" << pseqdesc->fps << ",\n";
+		json << "            \"flags\":" << pseqdesc->flags << ",\n";
+		json << "            \"activity\":" << pseqdesc->activity << ",\n";
+		json << "            \"actweight\":" << pseqdesc->actweight << ",\n";
+		json << "            \"numevents\":" << pseqdesc->numevents << ",\n";
+		json << "            \"numframes\":" << pseqdesc->numframes << ",\n";
+		json << "            \"numpivots\":" << pseqdesc->numpivots << ",\n";
+		json << "            \"motiontype\":" << pseqdesc->motiontype << ",\n";
+		json << "            \"bonemotion\":" << pseqdesc->motionbone << ",\n";
+		json << "            \"linearmovement\":[" << pseqdesc->linearmovement.x << "," << pseqdesc->linearmovement.y << "," << pseqdesc->linearmovement.z << "],\n";
+		json << "            \"bbmin\":[" << pseqdesc->bbmin.x << "," << pseqdesc->bbmin.y << "," << pseqdesc->bbmin.z << "],\n";
+		json << "            \"bbmax\":[" << pseqdesc->bbmax.x << "," << pseqdesc->bbmax.y << "," << pseqdesc->bbmax.z << "],\n";
+		json << "            \"numblends\":" << pseqdesc->numblends << ",\n";
+		json << "            \"seqgroup\":" << pseqdesc->seqgroup << ",\n";
+		json << "            \"entrynode\":" << pseqdesc->entrynode << ",\n";
+		json << "            \"exitnode\":" << pseqdesc->exitnode << "\n";
+		json << "        }";
+		pseqdesc++;
+	}
+
+	json << "\n    ]\n";
+	json << "}\n";
+
+	createDir(base_path);
+	std::ofstream mdl_file(base_path + "/mdl.json");
+	if (mdl_file.is_open())
+	{
+		mdl_file << json.str();
+		mdl_file.close();
+	}
+}
+
+static void exportMdlToObj(const std::string& base_path, StudioModel* mdl, const std::string& obj_name, const std::string& mtl_name, float scale, ProgressMeter& tmp)
+{
+	createDir(base_path);
+
+	std::string obj_file_path = base_path + obj_name + ".obj";
+	std::string mtl_file_path = base_path + mtl_name + ".mtl";
 
 	std::vector<std::string> materials;
 	std::vector<std::string> matnames;
@@ -323,13 +431,13 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 	int vertoffset = 1;
 	int texoffset = 1;
 
-	std::ofstream obj_file(path + obj_name);
+	std::ofstream obj_file(obj_file_path);
 	if (!obj_file) return;
 
 	obj_file << "# Exported MDL using bspguy!\n";
-	obj_file << "mtllib " << name << ".mtl\n";
+	obj_file << "mtllib " << mtl_name << ".mtl\n";
 
-	std::ofstream mtl_file(path + mtl_name);
+	std::ofstream mtl_file(mtl_file_path);
 	if (mtl_file) {
 		mtl_file << "# Exported MDL mtl using bspguy!\n";
 	}
@@ -339,7 +447,6 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 
 	for (size_t group = 0; group < mdl->mdl_mesh_groups.size(); group++) {
 		for (size_t meshid = 0; meshid < mdl->mdl_mesh_groups[group].size(); meshid++) {
-			tmp.tick();
 			StudioMesh& sm = mdl->mdl_mesh_groups[group][meshid];
 
 			// Ensure material for this texture
@@ -347,9 +454,7 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 			if (sm.texture) {
 				std::string texname = sm.texture->texName.empty() ? "unnamed" : sm.texture->texName;
 				if (texToMatId.find(sm.texture) == texToMatId.end()) {
-					mstudiotexture_t* texInfo = getMdlTextureInfo(mdl, sm.texture);
-					float override_ni = texInfo ? texInfo->flags : -1;
-					currentMaterial = addMdlTextureMaterial(path, materials, matnames, sm.texture, texname, override_ni);
+					currentMaterial = addMdlTextureMaterial(base_path, materials, matnames, sm.texture, texname);
 					texToMatId[sm.texture] = currentMaterial;
 				} else {
 					currentMaterial = texToMatId[sm.texture];
@@ -400,21 +505,23 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 	}
 
 	obj_file.close();
-	tmp.tick();
 }
 
 static void exportSeparateMdls(const std::string& path, float scale, Bsp* bsp, ProgressMeter& tmp)
 {
 	int mdl_count = 0;
+	int total_bodies = 0;
 	for (size_t ent = 0; ent < bsp->ents.size(); ent++)
 	{
 		if (bsp->renderer->renderEnts[ent].mdl)
 		{
 			mdl_count++;
+			StudioModel* mdl = (StudioModel*)bsp->renderer->renderEnts[ent].mdl;
+			total_bodies += mdl->GetBodyCount() + 1;
 		}
 	}
 	if (mdl_count > 0) {
-		tmp.update("EXPORT MDL...", mdl_count);
+		tmp.update("EXPORT MDL...", total_bodies);
 		g_progress = tmp;
 		for (size_t ent = 0; ent < bsp->ents.size(); ent++)
 		{
@@ -424,13 +531,29 @@ static void exportSeparateMdls(const std::string& path, float scale, Bsp* bsp, P
 				std::string model_path = bsp->ents[ent]->keyvalues["model"];
 				if (!ends_with_ci(model_path, ".mdl")) { continue; }
 
-				// Replace slashes with underscores to flatten path
+				// Flatten path for folder name
 				std::string adjusted_path = model_path;
 				replaceAll(adjusted_path, "/", "_");
 				replaceAll(adjusted_path, ".", "_");
 
-				std::string model_name = adjusted_path.empty() ? "unknown" : adjusted_path;
-				exportMdlToObj(path, mdl, model_name, scale, tmp);
+				std::string model_folder = path + "/mdl_models/" + adjusted_path + "/";
+				createDir(model_folder);
+
+				exportMdlJson(model_folder, mdl, adjusted_path);
+
+				int bodyCount = mdl->GetBodyCount() + 1;
+				for(int body=0; body < bodyCount; body++){
+					std::ostringstream body_num;
+					body_num << std::setfill('0') << std::setw(3) << body;
+					std::string body_str = "body" + body_num.str();
+
+					mdl->SetBody(body);
+					mdl->mdl_mesh_groups = std::vector<std::vector<StudioMesh>>();
+					mdl->UpdateModelMeshList();
+
+					exportMdlToObj(model_folder, mdl, body_str, body_str, scale, tmp);
+					tmp.tick();
+				}
 			}
 		}
 	} else {
