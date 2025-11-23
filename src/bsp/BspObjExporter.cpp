@@ -16,6 +16,23 @@
 #include "Clipper.h"
 #include "cli/ProgressMeter.h"
 #include "lodepng.h"
+#include <string>
+#include <algorithm>
+#include <cctype>
+#include <sstream>
+#include <iomanip>
+
+static bool ends_with_ci(const std::string& str, const std::string& suffix) {
+    if (suffix.size() > str.size()) return false;
+
+    return std::equal(
+        suffix.rbegin(), suffix.rend(),
+        str.rbegin(),
+        [](char a, char b) {
+            return std::tolower(a) == std::tolower(b);
+        }
+    );
+}
 
 static void processMdlToBsp(Bsp* bsp, ProgressMeter& tmp)
 {
@@ -220,7 +237,7 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 		{
 			if (mapRenderers[r]->wads[k]->hasTexture(tex.szName))
 			{
-				WADTEX* wadTex = mapRenderers[r]->wads[k]->readTexture(tex.szName);						
+				WADTEX* wadTex = mapRenderers[r]->wads[k]->readTexture(tex.szName);
 
 				COLOR4* rgba_data = ConvertWadTexToRGBA(wadTex);
 				materialid = exportMaterial(
@@ -384,6 +401,162 @@ static void exportMdlToObj(const std::string& output_path, StudioModel* mdl, con
 
 	obj_file.close();
 	tmp.tick();
+}
+
+static void exportSeparateMdls(const std::string& path, float scale, Bsp* bsp, ProgressMeter& tmp)
+{
+	int mdl_count = 0;
+	for (size_t ent = 0; ent < bsp->ents.size(); ent++)
+	{
+		if (bsp->renderer->renderEnts[ent].mdl)
+		{
+			mdl_count++;
+		}
+	}
+	if (mdl_count > 0) {
+		tmp.update("EXPORT MDL...", mdl_count);
+		g_progress = tmp;
+		for (size_t ent = 0; ent < bsp->ents.size(); ent++)
+		{
+			if (bsp->renderer->renderEnts[ent].mdl)
+			{
+				StudioModel* mdl = (StudioModel*)bsp->renderer->renderEnts[ent].mdl;
+				std::string model_path = bsp->ents[ent]->keyvalues["model"];
+				if (!ends_with_ci(model_path, ".mdl")) { continue; }
+
+				// Replace slashes with underscores to flatten path
+				std::string adjusted_path = model_path;
+				replaceAll(adjusted_path, "/", "_");
+				replaceAll(adjusted_path, ".", "_");
+
+				std::string model_name = adjusted_path.empty() ? "unknown" : adjusted_path;
+				exportMdlToObj(path, mdl, model_name, scale, tmp);
+			}
+		}
+	} else {
+		bsp->renderer->preRenderEnts();
+	}
+}
+
+static void exportSpr(const std::string& output_path, Sprite* spr, const std::string& name, ProgressMeter& tmp)
+{
+	std::string path = output_path + "/sprites/" + name + "/";
+	createDir(path);
+
+	bool intensity_alpha = spr->header.texFormat == 1;
+
+	// Export "sprite.json" with header and all frameinfo data
+	std::stringstream json;
+	json << "{\n";
+	json << "    \"name\":\"" << spr->name << "\",\n";
+	json << "    \"header\": {\n";
+	json << "        \"ident\":" << spr->header.ident << ",\n";
+	json << "        \"version\":" << spr->header.version << ",\n";
+	json << "        \"type\":" << spr->header.type << ",\n";
+	json << "        \"texFormat\":" << spr->header.texFormat << ",\n";
+	json << "        \"boundingradius\":" << spr->header.boundingradius << ",\n";
+	json << "        \"width\":" << spr->header.width << ",\n";
+	json << "        \"height\":" << spr->header.height << ",\n";
+	json << "        \"numframes\":" << spr->header.numframes << ",\n";
+	json << "        \"beamlength\":" << spr->header.beamlength << ",\n";
+	json << "        \"synctype\":" << static_cast<int>(spr->header.synctype) << "\n";
+	json << "    },\n";
+	json << "    \"groups\": [\n";
+
+	for (size_t g = 0; g < spr->sprite_groups.size(); g++) {
+		if (g > 0) json << ",\n";
+		json << "        {\n";
+		json << "            \"frames\": [\n";
+
+		for (size_t f = 0; f < spr->sprite_groups[g].sprites.size(); f++) {
+			SpriteImage& img = spr->sprite_groups[g].sprites[f];
+			if (f > 0) json << ",\n";
+			json << "                {\n";
+			json << "                    \"origin\":[" << img.frameinfo.origin[0] << "," << img.frameinfo.origin[1] << "],\n";
+			json << "                    \"width\":" << img.frameinfo.width << ",\n";
+			json << "                    \"height\":" << img.frameinfo.height << "\n";
+			json << "                }";
+		}
+
+		json << "\n            ]\n";
+		json << "        }";
+	}
+
+	json << "\n    ]\n";
+	json << "}\n";
+
+	std::ofstream sprite_file(path + "sprite.json");
+	if (sprite_file.is_open()) {
+		sprite_file << json.str();
+		sprite_file.close();
+	}
+
+	// Export each png
+	for (size_t g = 0; g < spr->sprite_groups.size(); g++) {
+		for (size_t f = 0; f < spr->sprite_groups[g].sprites.size(); f++) {
+			tmp.tick();
+
+			SpriteImage& img = spr->sprite_groups[g].sprites[f];
+
+			std::string g_str = (std::ostringstream() << std::setfill('0') << std::setw(3) << g).str();
+			std::string f_str = (std::ostringstream() << std::setfill('0') << std::setw(3) << f).str();
+			std::string full_path = path + g_str + "_" + f_str + ".png";
+
+			if (!fileExists(full_path))
+			{
+				// convert to unsigned char* for lodepng
+				int num_pixels = img.frameinfo.width * img.frameinfo.height;
+				std::vector<unsigned char> rgba_bytes(num_pixels * 4);
+				for (int p = 0; p < num_pixels; p++) {
+					rgba_bytes[p * 4 + 0] = img.image[p].r;
+					rgba_bytes[p * 4 + 1] = img.image[p].g;
+					rgba_bytes[p * 4 + 2] = img.image[p].b;
+					if (intensity_alpha) {
+						float alpha = (img.image[p].r + img.image[p].g + img.image[p].b) / (3.0f * 255.0f);
+						alpha = 1.0f - powf(1.0f - alpha, 3);
+						rgba_bytes[p * 4 + 3] = (int)(alpha * 255);
+					} else {
+						rgba_bytes[p * 4 + 3] = img.image[p].a;
+					}
+				}
+
+				lodepng_encode32_file(full_path.c_str(), rgba_bytes.data(), img.frameinfo.width, img.frameinfo.height);
+			}
+		}
+	}
+}
+
+static void exportSeparateSprs(const std::string& path, float scale, Bsp* bsp, ProgressMeter& tmp)
+{
+	int spr_count = 0;
+	for (size_t ent = 0; ent < bsp->ents.size(); ent++)
+	{
+		if (bsp->renderer->renderEnts[ent].spr)
+		{
+			spr_count++;
+		}
+	}
+	if (spr_count > 0) {
+		tmp.update("EXPORT SPR...", spr_count);
+		g_progress = tmp;
+		for (size_t ent = 0; ent < bsp->ents.size(); ent++)
+		{
+			if (bsp->renderer->renderEnts[ent].spr)
+			{
+				Sprite* spr = (Sprite*)bsp->renderer->renderEnts[ent].spr;
+				std::string model_path = bsp->ents[ent]->keyvalues["model"];
+				if (!ends_with_ci(model_path, ".spr")) { continue; }
+
+				// Replace slashes with underscores to flatten path
+				std::string adjusted_path = model_path;
+				replaceAll(adjusted_path, "/", "_");
+				replaceAll(adjusted_path, ".", "_");
+
+				std::string model_name = adjusted_path.empty() ? "unknown" : adjusted_path;
+				exportSpr(path, spr, model_name, tmp);
+			}
+		}
+	}
 }
 
 static void exportCollisionGeometry(Bsp* bsp,
@@ -791,37 +964,10 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 	if (with_mdl)
 		processMdlToBsp(this, tmp);
 	else {
-		int mdl_count = 0;
-		for (size_t ent = 0; ent < ents.size(); ent++)
-		{
-			if (renderer->renderEnts[ent].mdl)
-			{
-				mdl_count++;
-			}
-		}
-		if (mdl_count > 0) {
-			tmp.update("EXPORT MDL...", mdl_count);
-			g_progress = tmp;
-			for (size_t ent = 0; ent < ents.size(); ent++)
-			{
-				if (renderer->renderEnts[ent].mdl)
-				{
-					StudioModel* mdl = (StudioModel*)renderer->renderEnts[ent].mdl;
-					std::string model_path = ents[ent]->keyvalues["model"];
-
-					// Replace slashes with underscores to flatten path
-					std::string adjusted_path = model_path;
-					replaceAll(adjusted_path, "/", "_");
-					replaceAll(adjusted_path, ".", "_");
-
-					std::string model_name = adjusted_path.empty() ? "unknown" : adjusted_path;
-					exportMdlToObj(path, mdl, model_name, scale, tmp);
-				}
-			}
-		} else {
-			renderer->preRenderEnts();
-		}
+		exportSeparateMdls(path, scale, this, tmp);
 	}
+
+	exportSeparateSprs(path, scale, this, tmp);
 
 	tmp.update("Export to obj...", faceCount);
 
