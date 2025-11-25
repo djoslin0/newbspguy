@@ -1351,3 +1351,48 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 	for (auto m : refreshedModels)
 		bsprend->refreshModel(m, false);
 }
+
+void Bsp::ExportLeafAABBsToJson(const std::string& path, int contents)
+{
+	std::stringstream json;
+	json << "[\n";
+
+	int exportedCount = 0;
+	for (int i = 0; i < this->leafCount; i++)
+	{
+		BSPLEAF32& leaf = this->leaves[i];
+		if (leaf.nContents == contents)
+		{
+			if (exportedCount > 0) json << ",\n";
+			json << "    {\n";
+			json << "        \"leaf_index\": " << i << ",\n";
+			json << "        \"mins\": [" << leaf.nMins.x << ", " << leaf.nMins.y << ", " << leaf.nMins.z << "],\n";
+			json << "        \"maxs\": [" << leaf.nMaxs.x << ", " << leaf.nMaxs.y << ", " << leaf.nMaxs.z << "]\n";
+			json << "    }";
+			exportedCount++;
+		}
+	}
+
+	json << "]\n";
+
+	if (exportedCount == 0)
+	{
+		print_log("No leaves found.\n");
+		return;
+	}
+
+	std::string filename = path + "/leaves_" + std::to_string(contents) + ".json";
+	createDir(path);
+
+	std::ofstream file(filename);
+	if (file.is_open())
+	{
+		file << json.str();
+		file.close();
+		print_log("Exported {} leaf AABBs to {}\n", exportedCount, filename);
+	}
+	else
+	{
+		print_log(PRINT_RED, "Failed to open file for writing: {}\n", filename);
+	}
+}

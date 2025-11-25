@@ -425,6 +425,8 @@ public:
 
 	void ExportToObjWIP(const std::string& path, int iscale = 1, bool lightmap_mode = false, bool with_mdl = false, bool export_csm = false, int grouping = 0, bool export_collision = false);
 
+	void ExportLeafAABBsToJson(const std::string& path, int contents);
+
 	void ExportToMapWIP(const std::string& path, bool selected, bool merge_faces, bool use_one_back_vert, bool create_worldbox);
 
 	void import_mdl_to_bsp(int ent, int generateClipnodes, bool splitMeshes = false);
