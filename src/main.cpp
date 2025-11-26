@@ -1168,7 +1168,7 @@ int main(int argc, char* argv[])
 			tmpBsp->ExportToObjWIP(workdir, scale, false, with_mdl);
 			if (lightmap_mode) { tmpBsp->ExportToObjWIP(workdir, scale, lightmap_mode, with_mdl); }
 			if (export_collision) { tmpBsp->ExportToObjWIP(workdir, scale, false, false, false, 0, true); }
-			tmpBsp->ExportLeafAABBsToJson(workdir, CONTENTS_WATER);
+			tmpBsp->ExportBspJson(workdir);
 
 			delete tmpBsp;
 			retval = 0;

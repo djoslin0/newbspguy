@@ -1158,7 +1158,7 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 			vec3 origin_offset = ent->origin.flip();
 
 			std::string next_group_name = "M_" + std::to_string(mdlid) + "_ENT_" + std::to_string(tmpentid) + "#" + ent->classname;
-			print_log("Generating {}\n", next_group_name);
+			//print_log("Generating {}\n", next_group_name);
 
 			if (next_group_name != groupname)
 			{
@@ -1352,36 +1352,159 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		bsprend->refreshModel(m, false);
 }
 
-void Bsp::ExportLeafAABBsToJson(const std::string& path, int contents)
+void Bsp::ExportBspJson(const std::string& path)
 {
 	std::stringstream json;
-	json << "[\n";
+	json << "{\n";
 
-	int exportedCount = 0;
+	// Pre-compute model association for each leaf
+	std::vector<int> leaf_models(leafCount, -1);
 	for (int i = 0; i < this->leafCount; i++)
 	{
 		BSPLEAF32& leaf = this->leaves[i];
-		if (leaf.nContents == contents)
-		{
-			if (exportedCount > 0) json << ",\n";
-			json << "    {\n";
-			json << "        \"leaf_index\": " << i << ",\n";
-			json << "        \"mins\": [" << leaf.nMins.x << ", " << leaf.nMins.y << ", " << leaf.nMins.z << "],\n";
-			json << "        \"maxs\": [" << leaf.nMaxs.x << ", " << leaf.nMaxs.y << ", " << leaf.nMaxs.z << "]\n";
-			json << "    }";
-			exportedCount++;
+		int model_index = -1;
+		if (leaf.nMarkSurfaces > 0) {
+			int first_model = -1;
+			bool all_same = true;
+			for (int m = 0; m < leaf.nMarkSurfaces; m++) {
+				int faceIdx = marksurfs[leaf.iFirstMarkSurface + m];
+				int face_model = this->get_model_from_face(faceIdx);
+				if (first_model == -1) first_model = face_model;
+				else if (first_model != face_model) {
+				   all_same = false;
+				   break;
+				}
+			}
+			if (all_same) model_index = first_model;
 		}
+		leaf_models[i] = model_index;
 	}
 
-	json << "]\n";
+	json << "    \"leaves\": [\n";
 
-	if (exportedCount == 0)
+	int leafCount = 0;
+	for (int i = 0; i < this->leafCount; i++)
 	{
-		print_log("No leaves found.\n");
-		return;
+		BSPLEAF32& leaf = this->leaves[i];
+		if (leafCount > 0) json << ",\n";
+		json << "        {\n";
+		json << "            \"leaf_index\": " << i << ",\n";
+		json << "            \"contents\": " << leaf.nContents << ",\n";
+		json << "            \"mins\": [" << leaf.nMins.x << ", " << leaf.nMins.y << ", " << leaf.nMins.z << "],\n";
+		json << "            \"maxs\": [" << leaf.nMaxs.x << ", " << leaf.nMaxs.y << ", " << leaf.nMaxs.z << "],\n";
+
+		// Collect unique planes from the leaf's faces
+		std::set<int> planeIndices;
+		for (int m = 0; m < leaf.nMarkSurfaces; m++)
+		{
+			int faceIdx = marksurfs[leaf.iFirstMarkSurface + m];
+			planeIndices.insert(faces[faceIdx].iPlane);
+		}
+
+		json << "            \"planes\": [";
+		int planeCount = 0;
+		for (int planeIdx : planeIndices)
+		{
+			const BSPPLANE& plane = planes[planeIdx];
+			if (planeCount > 0) json << ",";
+			json << "\n                {\"normal\":[" << plane.vNormal.x << "," << plane.vNormal.y << "," << plane.vNormal.z << "],\"dist\":" << plane.fDist << "}";
+			planeCount++;
+		}
+		json << "\n            ],\n";
+		json << "            \"model_index\": " << leaf_models[i] << "\n";
+
+		json << "        }";
+		leafCount++;
 	}
 
-	std::string filename = path + "/leaves_" + std::to_string(contents) + ".json";
+	json << "\n    ],\n";
+
+	json << "    \"models\": [\n";
+
+	int modelCountJson = 0;
+	for (int i = 0; i < this->modelCount; i++)
+	{
+		BSPMODEL& model = this->models[i];
+		if (modelCountJson > 0) json << ",\n";
+		json << "        {\n";
+		json << "            \"model_index\": " << i << ",\n";
+		json << "            \"mins\": [" << model.nMins.x << ", " << model.nMins.y << ", " << model.nMins.z << "],\n";
+		json << "            \"maxs\": [" << model.nMaxs.x << ", " << model.nMaxs.y << ", " << model.nMaxs.z << "],\n";
+		json << "            \"face_count\": " << model.nFaces << ",\n";
+
+		// Collect unique planes from the model's faces
+		std::set<int> planeIndices;
+		for (int f = model.iFirstFace; f < model.iFirstFace + model.nFaces; f++)
+		{
+			planeIndices.insert(faces[f].iPlane);
+		}
+
+		json << "            \"planes\": [";
+		int planeCount = 0;
+		for (int planeIdx : planeIndices)
+		{
+			const BSPPLANE& plane = planes[planeIdx];
+			if (planeCount > 0) json << ",";
+			json << "\n                {\"normal\":[" << plane.vNormal.x << "," << plane.vNormal.y << "," << plane.vNormal.z << "],\"dist\":" << plane.fDist << "}";
+			planeCount++;
+		}
+		json << "\n            ],\n";
+
+		std::vector<int> entIds = this->get_model_ents_ids(i);
+		int entIdx = entIds.empty() ? -1 : entIds[0];
+		std::string classname = (entIdx >= 0 && entIdx < (int)this->ents.size()) ? json_escape(this->ents[entIdx]->classname) : "worldspawn";
+
+		json << "            \"entity_info\": {\n";
+		json << "                \"entity_index\": " << entIdx << ",\n";
+		json << "                \"classname\": \"" << classname << "\"\n";
+		json << "            },\n";
+
+		std::vector<int> leaf_indices;
+		for (int l = 0; l < this->leafCount; l++) {
+			if (leaf_models[l] == i) leaf_indices.push_back(l);
+		}
+
+		json << "            \"leaf_indices\": [";
+		for (size_t k = 0; k < leaf_indices.size(); k++) {
+			if (k > 0) json << ",";
+			json << leaf_indices[k];
+		}
+		json << "]\n";
+		json << "        }";
+		modelCountJson++;
+	}
+
+	json << "\n    ],\n";
+
+	json << "    \"entities\": [\n";
+
+	int entityCount = 0;
+	for (size_t i = 0; i < this->ents.size(); i++)
+	{
+		Entity* ent = this->ents[i];
+		if (entityCount > 0) json << ",\n";
+		json << "        {\n";
+		json << "            \"entity_index\": " << i << ",\n";
+		json << "            \"classname\": \"" << json_escape(ent->classname) << "\",\n";
+		json << "            \"keyvalues\": {\n";
+
+		int kvCount = 0;
+		for (auto& kv : ent->keyvalues)
+		{
+			if (kvCount > 0) json << ",\n";
+			json << "                \"" << json_escape(kv.first) << "\": \"" << json_escape(kv.second) << "\"";
+			kvCount++;
+		}
+
+		json << "\n            }\n";
+		json << "        }";
+		entityCount++;
+	}
+
+	json << "\n    ]\n";
+	json << "}\n";
+
+	std::string filename = path + "/bsp.json";
 	createDir(path);
 
 	std::ofstream file(filename);
@@ -1389,7 +1512,7 @@ void Bsp::ExportLeafAABBsToJson(const std::string& path, int contents)
 	{
 		file << json.str();
 		file.close();
-		print_log("Exported {} leaf AABBs to {}\n", exportedCount, filename);
+		print_log("Exported bsp.json to {}\n", filename);
 	}
 	else
 	{
