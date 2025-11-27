@@ -1352,12 +1352,109 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 		bsprend->refreshModel(m, false);
 }
 
+static void collect_clipnode_indices(Bsp* bsp, std::set<int>& seen, int nodeidx) {
+	if (nodeidx < 0) return;
+	if (seen.count(nodeidx)) return;
+	seen.insert(nodeidx);
+	const BSPCLIPNODE32& cn = bsp->clipnodes[nodeidx];
+	collect_clipnode_indices(bsp, seen, cn.iChildren[0]);
+	collect_clipnode_indices(bsp, seen, cn.iChildren[1]);
+}
+
+static void collect_node_indices(Bsp* bsp, std::set<int>& nodeSet, int nodeidx) {
+	if (nodeidx < 0) return;
+	if (nodeSet.count(nodeidx)) return;
+	nodeSet.insert(nodeidx);
+	const BSPNODE32& node = bsp->nodes[nodeidx];
+	collect_node_indices(bsp, nodeSet, node.iChildren[0]);
+	collect_node_indices(bsp, nodeSet, node.iChildren[1]);
+}
+
+static void collect_leaf_indices_from_nodes(Bsp* bsp, std::set<int>& leafSet, int nodeidx) {
+	if (nodeidx < 0) {
+		leafSet.insert(-(nodeidx + 1));
+		return;
+	}
+	const BSPNODE32& node = bsp->nodes[nodeidx];
+	collect_leaf_indices_from_nodes(bsp, leafSet, node.iChildren[0]);
+	collect_leaf_indices_from_nodes(bsp, leafSet, node.iChildren[1]);
+}
+
+static void collect_nodes_from_leaves(Bsp* bsp, const std::set<int>& leafSet, std::set<int>& nodeSet, int nodeidx) {
+	if (nodeidx < 0) return;
+
+	bool hasDescendantLeaf = false;
+
+	const BSPNODE32& node = bsp->nodes[nodeidx];
+
+	// Check left child
+	if (node.iChildren[0] >= 0) {
+		collect_nodes_from_leaves(bsp, leafSet, nodeSet, node.iChildren[0]);
+	} else {
+		int leafidx = -(node.iChildren[0] + 1);
+		if (leafSet.count(leafidx)) hasDescendantLeaf = true;
+	}
+
+	// Check right child
+	if (node.iChildren[1] >= 0) {
+		collect_nodes_from_leaves(bsp, leafSet, nodeSet, node.iChildren[1]);
+	} else {
+		int leafidx = -(node.iChildren[1] + 1);
+		if (leafSet.count(leafidx)) hasDescendantLeaf = true;
+	}
+
+	// If this node has any descendant leaf in the set, include it
+	if (hasDescendantLeaf) {
+		nodeSet.insert(nodeidx);
+	} else {
+		// Check if this node directly points to a leaf in the set (though unlikely in standard BSP)
+		// But already checked above
+	}
+}
+
 void Bsp::ExportBspJson(const std::string& path)
 {
 	std::stringstream json;
 	json << "{\n";
 
-	// Pre-compute model association for each leaf
+	/*
+	json << "    \"nodes\": {\n";
+
+	for (int i = 0; i < this->nodeCount; i++)
+	{
+		const BSPNODE32& node = this->nodes[i];
+		if (i > 0) json << ",\n";
+		json << "        \"" << i << "\": {\n";
+		json << "            \"node_index\": " << i << ",\n";
+		const BSPPLANE& plane = this->planes[node.iPlane];
+		json << "            \"plane\": {\"normal\":[" << plane.vNormal.x << "," << plane.vNormal.y << "," << plane.vNormal.z << "],\"dist\":" << plane.fDist << "},\n";
+		json << "            \"children\": [" << node.iChildren[0] << "," << node.iChildren[1] << "],\n";
+		json << "            \"mins\": [" << node.nMins.x << "," << node.nMins.y << "," << node.nMins.z << "],\n";
+		json << "            \"maxs\": [" << node.nMaxs.x << "," << node.nMaxs.y << "," << node.nMaxs.z << "]\n";
+		json << "        }";
+	}
+
+	json << "\n    },\n";
+	*/
+
+	/*
+	json << "    \"clipnodes\": {\n";
+
+	for (int i = 0; i < this->clipnodeCount; i++)
+	{
+		const BSPCLIPNODE32& cn = this->clipnodes[i];
+		if (i > 0) json << ",\n";
+		json << "        \"" << i << "\": {\n";
+		json << "            \"node_index\": " << i << ",\n";
+		const BSPPLANE& plane = this->planes[cn.iPlane];
+		json << "            \"plane\": {\"normal\":[" << plane.vNormal.x << "," << plane.vNormal.y << "," << plane.vNormal.z << "],\"dist\":" << plane.fDist << "},\n";
+		json << "            \"children\": [" << cn.iChildren[0] << "," << cn.iChildren[1] << "]\n";
+		json << "        }";
+	}
+	json << "\n    },\n";
+	*/
+
+	/*
 	std::vector<int> leaf_models(leafCount, -1);
 	for (int i = 0; i < this->leafCount; i++)
 	{
@@ -1380,25 +1477,23 @@ void Bsp::ExportBspJson(const std::string& path)
 		leaf_models[i] = model_index;
 	}
 
-	json << "    \"leaves\": [\n";
-
+	json << "    \"leaves\": {\n";
 	int leafCount = 0;
 	for (int i = 0; i < this->leafCount; i++)
 	{
 		BSPLEAF32& leaf = this->leaves[i];
 		if (leafCount > 0) json << ",\n";
-		json << "        {\n";
+		json << "        \"" << i << "\": {\n";
 		json << "            \"leaf_index\": " << i << ",\n";
 		json << "            \"contents\": " << leaf.nContents << ",\n";
 		json << "            \"mins\": [" << leaf.nMins.x << ", " << leaf.nMins.y << ", " << leaf.nMins.z << "],\n";
 		json << "            \"maxs\": [" << leaf.nMaxs.x << ", " << leaf.nMaxs.y << ", " << leaf.nMaxs.z << "],\n";
 
-		// Collect unique planes from the leaf's faces
-		std::set<int> planeIndices;
+		std::vector<int> planeIndices;
 		for (int m = 0; m < leaf.nMarkSurfaces; m++)
 		{
 			int faceIdx = marksurfs[leaf.iFirstMarkSurface + m];
-			planeIndices.insert(faces[faceIdx].iPlane);
+			planeIndices.push_back(faces[faceIdx].iPlane);
 		}
 
 		json << "            \"planes\": [";
@@ -1417,26 +1512,30 @@ void Bsp::ExportBspJson(const std::string& path)
 		leafCount++;
 	}
 
-	json << "\n    ],\n";
+	json << "\n    },\n";
+	*/
 
-	json << "    \"models\": [\n";
+	json << "    \"models\": {\n";
 
 	int modelCountJson = 0;
 	for (int i = 0; i < this->modelCount; i++)
 	{
 		BSPMODEL& model = this->models[i];
 		if (modelCountJson > 0) json << ",\n";
-		json << "        {\n";
+		json << "        \"" << i << "\": {\n";
 		json << "            \"model_index\": " << i << ",\n";
 		json << "            \"mins\": [" << model.nMins.x << ", " << model.nMins.y << ", " << model.nMins.z << "],\n";
 		json << "            \"maxs\": [" << model.nMaxs.x << ", " << model.nMaxs.y << ", " << model.nMaxs.z << "],\n";
 		json << "            \"face_count\": " << model.nFaces << ",\n";
 
-		// Collect unique planes from the model's faces
-		std::set<int> planeIndices;
+		/*
+		std::vector<int> planeIndices;
+		std::map<int, int> planeSide;
 		for (int f = model.iFirstFace; f < model.iFirstFace + model.nFaces; f++)
 		{
-			planeIndices.insert(faces[f].iPlane);
+			int planeIdx = faces[f].iPlane;
+			planeIndices.push_back(planeIdx);
+			planeSide[planeIdx] = faces[f].nPlaneSide; // from face, not texture
 		}
 
 		json << "            \"planes\": [";
@@ -1444,11 +1543,19 @@ void Bsp::ExportBspJson(const std::string& path)
 		for (int planeIdx : planeIndices)
 		{
 			const BSPPLANE& plane = planes[planeIdx];
+			vec3 normal = plane.vNormal;
+			float dist = plane.fDist;
+			if (planeSide[planeIdx] == 1) // back side, flip
+			{
+				normal = -normal;
+				dist = -dist;
+			}
 			if (planeCount > 0) json << ",";
-			json << "\n                {\"normal\":[" << plane.vNormal.x << "," << plane.vNormal.y << "," << plane.vNormal.z << "],\"dist\":" << plane.fDist << "}";
+			json << "\n                {\"normal\":[" << normal.x << "," << normal.y << "," << normal.z << "],\"dist\":" << dist << "}";
 			planeCount++;
 		}
 		json << "\n            ],\n";
+		*/
 
 		std::vector<int> entIds = this->get_model_ents_ids(i);
 		int entIdx = entIds.empty() ? -1 : entIds[0];
@@ -1459,6 +1566,7 @@ void Bsp::ExportBspJson(const std::string& path)
 		json << "                \"classname\": \"" << classname << "\"\n";
 		json << "            },\n";
 
+		/*
 		std::vector<int> leaf_indices;
 		for (int l = 0; l < this->leafCount; l++) {
 			if (leaf_models[l] == i) leaf_indices.push_back(l);
@@ -1469,21 +1577,66 @@ void Bsp::ExportBspJson(const std::string& path)
 			if (k > 0) json << ",";
 			json << leaf_indices[k];
 		}
+		json << "],\n";
+		*/
+
+		json << "            \"hulls\": [";
+		int hullCountJson = 0;
+		for (int h = 0; h < 4; h++) {
+			if (model.iHeadnodes[h] < 0) continue;
+			if (hullCountJson++ > 0) json << ",";
+			json << "\n                {\n";
+			json << "                    \"hull_index\": " << h << ",\n";
+			json << "                    \"headnode\": " << model.iHeadnodes[h] << ",\n";
+			json << "                    \"clipnodes\": {";
+			std::set<int> clipnodeSet;
+			collect_clipnode_indices(this, clipnodeSet, model.iHeadnodes[h]);
+			int clipCount = 0;
+			for (auto cnidx : clipnodeSet) {
+				const BSPCLIPNODE32& cn = clipnodes[cnidx];
+				const BSPPLANE& plane = planes[cn.iPlane];
+				if (clipCount++ > 0) json << ",";
+				json << "\n                        \"" << cnidx << "\": {\"node_index\":" << cnidx << ", \"plane\":{\"normal\":[" << plane.vNormal.x << "," << plane.vNormal.y << "," << plane.vNormal.z << "],\"dist\":" << plane.fDist << "}, \"children\":[" << cn.iChildren[0] << "," << cn.iChildren[1] << "]}";
+			}
+			json << "\n                    }\n";
+			json << "                }";
+		}
+		json << "\n            ]\n";
+
+		/*
+		json << "            \"geometry_nodes\": [";
+		std::set<int> nodeSet;
+		collect_nodes_from_leaves(this, leaf_indices.empty() ? std::set<int>() : std::set<int>(leaf_indices.begin(), leaf_indices.end()), nodeSet, 0);
+		for (auto nit = nodeSet.begin(); nit != nodeSet.end(); ++nit) {
+			if (nit != nodeSet.begin()) json << ",";
+			json << *nit;
+		}
+		json << "],\n";
+		*/
+
+		/*
+		json << "            \"geometry_leaves\": [";
+		for (size_t k = 0; k < leaf_indices.size(); k++) {
+			if (k > 0) json << ",";
+			json << leaf_indices[k];
+		}
 		json << "]\n";
+		*/
+
 		json << "        }";
 		modelCountJson++;
 	}
 
-	json << "\n    ],\n";
+	json << "\n    },\n";
 
-	json << "    \"entities\": [\n";
+	json << "    \"entities\": {\n";
 
 	int entityCount = 0;
 	for (size_t i = 0; i < this->ents.size(); i++)
 	{
 		Entity* ent = this->ents[i];
 		if (entityCount > 0) json << ",\n";
-		json << "        {\n";
+		json << "        \"" << i << "\": {\n";
 		json << "            \"entity_index\": " << i << ",\n";
 		json << "            \"classname\": \"" << json_escape(ent->classname) << "\",\n";
 		json << "            \"keyvalues\": {\n";
@@ -1501,7 +1654,7 @@ void Bsp::ExportBspJson(const std::string& path)
 		entityCount++;
 	}
 
-	json << "\n    ]\n";
+	json << "\n    }\n";
 	json << "}\n";
 
 	std::string filename = path + "/bsp.json";
