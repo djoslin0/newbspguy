@@ -1417,7 +1417,6 @@ void Bsp::ExportBspJson(const std::string& path)
 	std::stringstream json;
 	json << "{\n";
 
-	/*
 	json << "    \"nodes\": {\n";
 
 	for (int i = 0; i < this->nodeCount; i++)
@@ -1435,9 +1434,7 @@ void Bsp::ExportBspJson(const std::string& path)
 	}
 
 	json << "\n    },\n";
-	*/
 
-	/*
 	json << "    \"clipnodes\": {\n";
 
 	for (int i = 0; i < this->clipnodeCount; i++)
@@ -1452,9 +1449,7 @@ void Bsp::ExportBspJson(const std::string& path)
 		json << "        }";
 	}
 	json << "\n    },\n";
-	*/
 
-	/*
 	std::vector<int> leaf_models(leafCount, -1);
 	for (int i = 0; i < this->leafCount; i++)
 	{
@@ -1489,6 +1484,7 @@ void Bsp::ExportBspJson(const std::string& path)
 		json << "            \"mins\": [" << leaf.nMins.x << ", " << leaf.nMins.y << ", " << leaf.nMins.z << "],\n";
 		json << "            \"maxs\": [" << leaf.nMaxs.x << ", " << leaf.nMaxs.y << ", " << leaf.nMaxs.z << "],\n";
 
+		/*
 		std::vector<int> planeIndices;
 		for (int m = 0; m < leaf.nMarkSurfaces; m++)
 		{
@@ -1506,14 +1502,14 @@ void Bsp::ExportBspJson(const std::string& path)
 			planeCount++;
 		}
 		json << "\n            ],\n";
-		json << "            \"model_index\": " << leaf_models[i] << "\n";
+		*/
 
+		json << "            \"model_index\": " << leaf_models[i] << "\n";
 		json << "        }";
 		leafCount++;
 	}
 
 	json << "\n    },\n";
-	*/
 
 	json << "    \"models\": {\n";
 
@@ -1622,6 +1618,7 @@ void Bsp::ExportBspJson(const std::string& path)
 		}
 		json << "]\n";
 		*/
+
 
 		json << "        }";
 		modelCountJson++;
