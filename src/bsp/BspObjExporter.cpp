@@ -155,7 +155,7 @@ static int exportMaterial(const std::string& path, std::vector<std::string>& mat
 	return materialIndex;
 }
 
-static void exportLightmaps(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames, BspRenderer* bsprend)
+static void exportLightmaps(const std::string& path, std::string& bsp_name, std::vector<std::string>& materials, std::vector<std::string>& matnames, BspRenderer* bsprend)
 {
 	for (size_t i = 0; i < bsprend->glLightmapTextures.size(); i++)
 	{
@@ -175,11 +175,54 @@ static void exportLightmaps(const std::string& path, std::vector<std::string>& m
 		// export
 		exportMaterial(
 			path, materials, matnames,
-			"atlases", "atlas_" + std::to_string(i),
+			"atlases", bsp_name + "_atlas_" + std::to_string(i),
 			rgba_data, atlas_tex->width, atlas_tex->height
 		);
 
 		delete rgba_data;
+	}
+}
+
+static void exportSkybox(const std::string& path, std::string& bsp_name, std::vector<std::string>& materials, std::vector<std::string>& matnames, Bsp* bsp, BspRenderer* bsprend)
+{
+	// Get skyname from worldspawn entity
+	std::string skyName;
+	if (!bsp->ents.empty() && bsp->ents[0]->keyvalues.count("skyname"))
+	{
+		skyName = bsp->ents[0]->keyvalues["skyname"];
+	}
+
+	if (skyName.empty())
+	{
+		return;
+	}
+
+	// For the skyname, copy the 6 faces as TGA files
+	std::vector<std::string> suffixes = {"ft", "bk", "lf", "rt", "up", "dn"};
+
+	createDir(path + "skyboxes");
+
+	for (const auto& pathToggle : g_settings.resPaths)
+	{
+		std::string skyboxPath = pathToggle.path + "/gfx/env/" + skyName;
+
+		for (const std::string& suffix : suffixes)
+		{
+			std::string sourceFile = skyboxPath + suffix + ".tga";
+			std::string destFile = path + "skyboxes/" + skyName + suffix + ".tga";
+
+			if (fileExists(sourceFile) && !fileExists(destFile))
+			{
+				// Copy the TGA file
+				std::ifstream src(sourceFile, std::ios::binary);
+				std::ofstream dst(destFile, std::ios::binary);
+				if (src && dst)
+				{
+					dst << src.rdbuf();
+					print_log("Copied skybox texture {} to {}\n", skyName + suffix + ".tga", destFile);
+				}
+			}
+		}
 	}
 }
 
@@ -1081,12 +1124,15 @@ void Bsp::ExportToObjWIP(const std::string& path, int iscale, bool lightmapmode,
 
 	ProgressMeter tmp = g_progress;
 
-	if (lightmapmode)
-		exportLightmaps(path, materials, matnames, bsprend);
+	if (lightmapmode) {
+		exportLightmaps(path, bsp_name, materials, matnames, bsprend);
+	} else {
+		exportSkybox(path, bsp_name, materials, matnames, this, bsprend);
+	}
 
-	if (with_mdl)
+	if (with_mdl) {
 		processMdlToBsp(this, tmp);
-	else {
+	} else {
 		exportSeparateMdls(path, scale, this, tmp);
 	}
 
