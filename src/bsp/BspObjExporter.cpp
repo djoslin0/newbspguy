@@ -609,7 +609,7 @@ static void exportSpr(const std::string& output_path, Sprite* spr, const std::st
 	std::string path = output_path + "/sprites/" + name + "/";
 	createDir(path);
 
-	bool intensity_alpha = spr->header.texFormat == 1;
+	bool intensity_alpha = spr->header.texFormat == 1 || spr->header.texFormat == 3;
 
 	// Export "sprite.json" with header and all frameinfo data
 	std::stringstream json;
