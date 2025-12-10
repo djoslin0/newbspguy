@@ -197,6 +197,8 @@ static void exportSkybox(const std::string& path, std::string& bsp_name, std::ve
 		return;
 	}
 
+	std::string skyFilename = toLowerCase(skyName);
+
 	// For the skyname, copy the 6 faces as TGA files
 	std::vector<std::string> suffixes = {"ft", "bk", "lf", "rt", "up", "dn"};
 
@@ -209,7 +211,7 @@ static void exportSkybox(const std::string& path, std::string& bsp_name, std::ve
 		for (const std::string& suffix : suffixes)
 		{
 			std::string sourceFile = skyboxPath + suffix + ".tga";
-			std::string destFile = path + "skyboxes/" + skyName + suffix + ".tga";
+			std::string destFile = path + "skyboxes/" + skyFilename + suffix + ".tga";
 
 			if (fileExists(sourceFile) && !fileExists(destFile))
 			{
@@ -219,7 +221,7 @@ static void exportSkybox(const std::string& path, std::string& bsp_name, std::ve
 				if (src && dst)
 				{
 					dst << src.rdbuf();
-					print_log("Copied skybox texture {} to {}\n", skyName + suffix + ".tga", destFile);
+					print_log("Copied skybox texture {} to {}\n", skyFilename + suffix + ".tga", destFile);
 				}
 			}
 		}
@@ -231,11 +233,11 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 {
 	// set default value
 	int materialid = -1;
-
+	std::string texFilename = toLowerCase(tex.szName);
 	// check if material already exists
 	for (size_t i = 0; i < matnames.size(); i++)
 	{
-		if (matnames[i] == tex.szName)
+		if (matnames[i] == texFilename)
 		{
 			return (int)i;
 		}
@@ -257,7 +259,7 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 			COLOR4* rgba_data = ConvertMipTexToRGBA(((BSPMIPTEX*)(bsp->textures + texOffset)), bsp->is_texture_with_pal(texinfo.iMiptex) ? NULL : palette, color_count);
 			materialid = exportMaterial(
 				path, materials, matnames,
-				"textures", tex.szName,
+				"textures", texFilename,
 				rgba_data, tex.nWidth, tex.nHeight
 			);
 			delete rgba_data;
@@ -275,9 +277,10 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 				WADTEX* wadTex = mapRenderers[r]->wads[k]->readTexture(tex.szName);
 
 				COLOR4* rgba_data = ConvertWadTexToRGBA(wadTex);
+
 				materialid = exportMaterial(
 					path, materials, matnames,
-					"textures", tex.szName,
+					"textures", texFilename,
 					rgba_data, tex.nWidth, tex.nHeight
 				);
 				delete rgba_data;
@@ -293,10 +296,11 @@ static int addTextureMaterial(const std::string& path, std::vector<std::string>&
 static int addMdlTextureMaterial(const std::string& path, std::vector<std::string>& materials, std::vector<std::string>& matnames,
 								 Texture* tex, const std::string& texname)
 {
+	std::string texFilename = toLowerCase(texname);
 	// check if material already exists
 	for (size_t i = 0; i < matnames.size(); i++)
 	{
-		if (matnames[i] == texname)
+		if (matnames[i] == texFilename)
 		{
 			return (int)i;
 		}
@@ -305,7 +309,7 @@ static int addMdlTextureMaterial(const std::string& path, std::vector<std::strin
 	// export to png
 	int materialid = exportMaterial(
 		path, materials, matnames,
-		"textures", texname,
+		"textures", texFilename,
 		(COLOR4*)tex->get_data(), tex->width, tex->height
 	);
 	return materialid;
